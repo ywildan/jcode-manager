@@ -28,9 +28,10 @@ Deploy with the Next.js preset and `landing` as the root directory. Set
 Native scrolling carries the deck. Semantic HTML keeps the story readable
 independently of the WebGL canvas; the scene is a progressive enhancement with a
 CSS fallback when a GPU is unavailable. The loading curtain also leaves the
-content accessible with JavaScript disabled. Keyboard controls, visible focus,
-reduced-motion support and touch targets of at least 44 pixels are part of the
-experience.
+content accessible with JavaScript disabled. Keyboard controls, visible focus and
+reduced-motion support are part of the experience, and buttons, fields, nav stops
+and copy controls are at least 44 pixels tall (inline links inside paragraphs are
+exempt). The projection nav appears above 1180 x 680 so it never crowds the copy.
 
 The provider studio previews a `[providers.<name>]` section and the matching
 launch command as you type. It writes nothing, stores nothing and never asks for
