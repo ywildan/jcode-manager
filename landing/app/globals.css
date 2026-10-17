@@ -928,6 +928,7 @@ em {
 }
 
 .plate-dot:hover span,
+.plate-dot:focus span,
 .plate-dot:focus-visible span {
   opacity: 1;
   translate: 0 -50%;
