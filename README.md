@@ -1,77 +1,106 @@
 # J-Code Provider Manager
 
-Script interaktif buat ngatur provider jcode CLI. Universal: jalan di **Linux**,
-**macOS**, dan **Windows** (PowerShell/CMD) selama ada Python 3.8+.
+**English** | [Bahasa Indonesia](README.id.md)
+
+An interactive manager for jcode CLI providers. Universal: runs on **Linux**,
+**macOS**, and **Windows** (PowerShell/CMD) with either Python 3.8+ or plain bash.
+
+![engine: python + bash](https://img.shields.io/badge/engine-Python%20%2B%20Bash-blue)
+
+## What it does
+
+jcode talks to any OpenAI-compatible endpoint once you define a provider profile in
+`~/.jcode/config.toml`. This tool gives you a menu for that instead of hand-editing
+TOML: add, list (with API keys masked), edit, delete, one-click templates for popular
+providers, copy-paste commands, and a launch flow that handles jcode's background
+daemon correctly. Every write is backed up first.
 
 ```
 jcode-manager/
-├── jcode-manager.py        # engine Python (fitur paling lengkap, utama)
-├── jcode-manager.sh        # launcher + engine Bash (fallback tanpa Python)
-├── jcode-manager.ps1       # launcher Windows (nyari Python)
-├── create-shortcut.sh      # bikin symlink / desktop entry
-├── README.md
+├── jcode-manager.py        # Python engine (most complete, primary)
+├── jcode-manager.sh        # launcher + Bash engine (fallback without Python)
+├── jcode-manager.ps1       # Windows launcher (locates Python)
+├── install.sh              # one-command setup for new users
+├── create-shortcut.sh      # symlink / desktop entry helper
+├── README.md               # this file (English)
+├── README.id.md            # Indonesian version
 └── tests/
-    ├── test-platform-paths.py  # deteksi OS & path (Windows/macOS simulasi)
-    ├── smoke-test.sh           # 63 test engine Python
-    ├── smoke-test-fallback.sh  # 57 test engine Bash (tanpa Python)
-    ├── verify-with-jcode.sh    # acceptance test pakai binary jcode asli (sandbox)
-    └── mock-openai-server.py   # server OpenAI-compatible palsu buat test di atas
+    ├── test-platform-paths.py  # OS & path detection (Windows/macOS simulated)
+    ├── smoke-test.sh           # 64 tests, Python engine
+    ├── smoke-test-fallback.sh  # 57 tests, Bash engine
+    ├── verify-with-jcode.sh    # acceptance tests with the real jcode binary
+    └── mock-openai-server.py   # fake OpenAI-compatible server for the above
 ```
 
-## Dua engine
-
-`jcode-manager.sh` itu pintu masuk utama dan dia pinter milih engine:
-
-| Kondisi | Yang jalan |
-| ------- | ---------- |
-| Python 3.8+ ada | **engine Python** (`jcode-manager.py`), fitur paling lengkap |
-| Python nggak ada | **engine Bash** self-contained, fitur inti tetap jalan |
-| `JCODE_MANAGER_ENGINE=bash` | paksa engine Bash |
-| `JCODE_MANAGER_ENGINE=python` | paksa engine Python, error kalau nggak ada |
-
-Engine Bash nggak butuh dependency apa-apa (cuma bash + coreutils/awk): menu 1-9,
-add/list/edit/delete/quick start/generate/launch/restore, backup, masking key, dan
-format config yang sama. Yang beda: engine Bash nggak punya mode `--key-store envfile`
-buat bikin provider baru (tapi tetap bisa baca dan mask key dari env file yang udah ada),
-dan `--list --json` di engine Bash cuma nyetak subset field.
-
-Engine Python yang nulis config di dokumen ini, kalau nggak disebut lain.
-
-## Fitur
-
-| Menu | Fungsi |
-| ---- | ------ |
-| 1 | **Add New Provider** - input nama, base_url, api_key (masked), default_model. Validasi duplikat + backup otomatis |
-| 2 | **List All Providers** - nama, base_url, model, API key ter-mask, sumber key |
-| 3 | **Edit Provider** - input kosong = nilai lama dipertahankan, bisa rename |
-| 4 | **Delete Provider** - konfirmasi + backup, section `[[providers.x.models]]` ikut dibuang |
-| 5 | **Quick Start** - template OpenAI / Claude / Groq / OpenRouter, cuma perlu API key |
-| 6 | **Generate Command** - command siap copy-paste (auto-copy ke clipboard kalau ada) |
-| 7 | **Launch Provider** - `server stop --force` dulu, baru start pakai profile |
-| 8 | **Info & Doctor** - OS, path config, env dir, lokasi binary, jumlah provider/backup |
-| 9 | **Restore dari Backup** - balikin config dari backup lama |
-
-## Cara Pakai
+## Install
 
 ```bash
-# 1. Buka menu (bisa dari file langsung atau lewat symlink)
-./jcode-manager.sh              # Linux/macOS/WSL, auto pilih engine
-python3 jcode-manager.py        # langsung ke engine Python
-jcode-manager                   # kalau symlink-nya udah dipasang
-
-# 2. Pilih menu, ikutin instruksi
-# 3. Setelah selesai, tekan Enter buat balik ke menu
+git clone https://github.com/<you>/jcode-manager
+cd jcode-manager
+./install.sh
 ```
 
-Bikin shortcut biar bisa dipanggil dari mana aja:
+`install.sh` checks for `jcode`, Python, and bash, marks the scripts executable,
+installs a `jcode-manager` symlink in `~/.local/bin`, and prints the config paths it
+will use. It does not modify your jcode config. Use `--no-link` to only run the checks,
+or `--bin-dir /usr/local/bin` with `sudo` for a system-wide command.
+
+No package manager required: there is nothing to `pip install`, and the Bash engine
+needs only `bash`, `awk`, `sed`, `grep`, `cut`, and `date`.
+
+## Two engines
+
+`jcode-manager.sh` is the main entry point and picks an engine automatically:
+
+| Condition | What runs |
+| --------- | --------- |
+| Python 3.8+ available | **Python engine** (`jcode-manager.py`), most complete |
+| No Python | **Bash engine**, self-contained, core features still work |
+| `JCODE_MANAGER_ENGINE=bash` | force the Bash engine |
+| `JCODE_MANAGER_ENGINE=python` | force the Python engine, errors if missing |
+
+The Bash engine covers menu 1-9: add/list/edit/delete/quick start/generate/launch/
+restore, backups, key masking, and the same config format. The differences: the Bash
+engine cannot create new providers with `--key-store envfile` (it can still read and
+mask keys from existing env files), and its `--list --json` prints a subset of fields.
+
+Unless stated otherwise, this document describes the Python engine.
+
+## Features
+
+| Menu | Function |
+| ---- | -------- |
+| 1 | **Add New Provider** - name, base_url, api_key (masked input), default_model. Duplicate check + automatic backup |
+| 2 | **List All Providers** - name, base_url, model, masked API key, where the key lives |
+| 3 | **Edit Provider** - empty input keeps the current value; can also rename |
+| 4 | **Delete Provider** - confirmation + backup; drops `[[providers.x.models]]` too |
+| 5 | **Quick Start** - OpenAI / Claude / Groq / OpenRouter templates, you only supply the API key |
+| 6 | **Generate Command** - copy-paste ready command (auto-copies to clipboard when available) |
+| 7 | **Launch Provider** - runs `server stop --force` first, then starts jcode on that profile |
+| 8 | **Info & Doctor** - OS, config path, env dir, binary location, provider/backup counts |
+| 9 | **Restore from Backup** - roll the config back to an earlier backup |
+
+## Usage
 
 ```bash
-./create-shortcut.sh                 # symlink ke ~/.local/bin/jcode-manager
-./create-shortcut.sh --entry python  # nunjuk langsung ke jcode-manager.py
-./create-shortcut.sh --desktop       # + entry menu aplikasi (Linux)
-./create-shortcut.sh --uninstall     # hapus
+# 1. Open the menu (directly, or through the symlink)
+./jcode-manager.sh              # Linux/macOS/WSL, picks the engine automatically
+python3 jcode-manager.py        # straight to the Python engine
+jcode-manager                   # if the symlink is installed
 
-sudo ./create-shortcut.sh --bin-dir /usr/local/bin   # kalau mau global
+# 2. Pick a menu entry and follow the prompts
+# 3. Press Enter after each operation to return to the menu
+```
+
+Add a shortcut so it works from anywhere:
+
+```bash
+./create-shortcut.sh                 # symlink into ~/.local/bin/jcode-manager
+./create-shortcut.sh --entry python  # point straight at jcode-manager.py
+./create-shortcut.sh --desktop       # also add an application-menu entry (Linux)
+./create-shortcut.sh --uninstall     # remove it
+
+sudo ./create-shortcut.sh --bin-dir /usr/local/bin   # system-wide
 ```
 
 Windows:
@@ -79,68 +108,66 @@ Windows:
 ```powershell
 .\jcode-manager.ps1
 .\jcode-manager.ps1 --list
-# Kalau kena execution policy:
+# If the execution policy blocks it:
 powershell -ExecutionPolicy Bypass -File .\jcode-manager.ps1
 ```
 
-## Kirim ke orang lain
+## Sharing it with someone else
 
-Tool ini cuma file biasa, nggak ada dependency dan nggak ada path yang di-hardcode
-(folder-nya diresolve dari lokasi script, jadi bisa ditaruh di mana aja).
+Everything here is plain files: no dependencies, no hardcoded paths (the script folder
+is resolved from the script's own location, through symlinks), so it can live anywhere.
 
-**Cara paling gampang: kirim foldernya**
+**Simplest: hand over the folder**
 
 ```bash
-# di komputer kamu
+# on your machine
 tar -czf jcode-manager.tar.gz jcode-manager/
-# kirim file itu, terus di komputer penerima:
+# send that file; on the other machine:
 tar -xzf jcode-manager.tar.gz
 cd jcode-manager
 ./install.sh
 ```
 
-**Lewat git**
+**Through git**
 
 ```bash
-git init && git add -A && git commit -m "J-Code Provider Manager"
-# push ke GitHub/GitLab, terus penerima:
-git clone <url-repo> && cd jcode-manager && ./install.sh
+git clone <repo-url> && cd jcode-manager && ./install.sh
 ```
 
-**Yang dilakuin `install.sh`**
+**What `install.sh` does**
 
-1. `chmod +x` script yang perlu
-2. cek `jcode`, Python, dan bash ada atau nggak (kalau ada yang kurang, dikasih tau cara install-nya)
-3. pasang symlink `jcode-manager` (bisa dilewat pakai `--no-link`)
-4. jalanin `--info` biar langsung keliatan path config yang bakal dipakai
+1. `chmod +x` on the scripts
+2. checks whether `jcode`, Python, and bash are present (and tells you how to install
+   whatever is missing)
+3. installs the `jcode-manager` symlink (skip with `--no-link`)
+4. runs `--info` so you immediately see which config path will be used
 
-`install.sh` **nggak nyentuh** config jcode yang udah ada. Dia cuma nerangin path,
-nggak nulis apa-apa. Nulis config baru terjadi kalau penerima sendiri yang pilih
-menu 1/5/9.
+`install.sh` **never touches** an existing jcode config. It only reports paths. Config
+files are written only when the user picks menu 1/5/9 themselves.
 
-**Yang perlu dipastiin di komputer penerima**
+**Requirements on their machine**
 
-| Butuh | Catatan |
-| ----- | ------- |
-| jcode | wajib, karena manager cuma ngatur provider-nya. Kalau `jcode` nggak ada, manager tetap jalan tapi nggak bisa launch |
-| Python 3.8+ **atau** bash | salah satu aja. Tanpa Python, engine Bash otomatis dipakai |
-| bash 4.2+ buat engine Bash | macOS default masih bash 3.2, jadi pakai `brew install bash` kalau mau jalur non-Python di macOS |
+| Needed | Notes |
+| ------ | ----- |
+| jcode | required; the manager only manages providers. Without it the manager still runs but cannot launch jcode |
+| Python 3.8+ **or** bash | either one. Without Python the Bash engine is used automatically |
+| bash 4.2+ for the Bash engine | macOS still ships bash 3.2, so `brew install bash` if you want the non-Python path there |
 
-**Buat yang mau ngecek dulu sebelum percaya**
+**For anyone who wants to check before trusting**
 
 ```bash
-bash tests/smoke-test.sh            # 64 test engine Python (config sementara, aman)
-bash tests/smoke-test-fallback.sh   # 57 test engine Bash
-python3 tests/test-platform-paths.py # 16 test deteksi OS/path
-bash tests/verify-with-jcode.sh      # 20 test pakai binary jcode asli, di sandbox
+bash tests/smoke-test.sh             # 64 tests, Python engine (temporary config, safe)
+bash tests/smoke-test-fallback.sh    # 57 tests, Bash engine
+python3 tests/test-platform-paths.py # 16 tests, OS/path detection
+bash tests/verify-with-jcode.sh      # 20 tests against the real jcode binary, sandboxed
 ```
 
-Semua test pakai config sementara di folder temp, jadi config jcode yang beneran
-nggak kesentuh. Yang perlu izin lebih cuma `--bin-dir /usr/local/bin`.
+Every test uses a throwaway config in a temp directory, so your real jcode config is
+never touched. The only step that needs elevated rights is `--bin-dir /usr/local/bin`.
 
-### Mode non-interaktif
+## Non-interactive mode
 
-Semua fitur bisa dipakai tanpa menu, cocok buat scripting:
+Every feature is available without the menu, which is handy for scripting:
 
 ```bash
 python3 jcode-manager.py --list
@@ -150,7 +177,7 @@ python3 jcode-manager.py --info
 python3 jcode-manager.py --add mygw --base-url https://api.example.com/v1 \
     --api-key sk-xxx --model gpt-4o
 
-# server lokal tanpa auth (lmstudio/ollama): api_key string kosong
+# local server without auth (lmstudio/ollama): empty api_key string
 python3 jcode-manager.py --add local --base-url http://localhost:1234/v1 --api-key ""
 
 python3 jcode-manager.py --edit mygw --model gpt-4o-mini
@@ -163,193 +190,204 @@ python3 jcode-manager.py --launch mygw --yes
 python3 jcode-manager.py --restore ~/.jcode/config.toml.backup.20261017200113
 ```
 
-API key dari stdin (biar nggak nyangkut di shell history):
+API key from stdin, to keep it out of your shell history:
 
 ```bash
 printf '%s' "$MY_KEY" | python3 jcode-manager.py --add mygw \
     --base-url https://api.example.com/v1 --api-key-stdin --model gpt-4o
 ```
 
-## Format Config
+## Config format
 
-Manager nulis format paling minimal yang jcode butuh (udah dites langsung ke
-binary jcode v0.98.1):
+The manager writes the minimal shape jcode needs (verified directly against the
+jcode v0.98.1 binary):
 
 ```toml
-[providers.<nama>]
+[providers.<name>]
 base_url = "https://api.example.com/v1"
 api_key = "sk-xxx"
 default_model = "gpt-4o"
 ```
 
-Tiga catatan penting:
+Three things worth knowing:
 
-1. Key-nya **`default_model`**, bukan `model`. Kalau pakai `model`, jcode diam-diam
-   ngabaikan dan jatuh ke model default katalog (bukan error, tapi salah model).
-2. **Jangan** tulis `models = [...]`. Bentuk itu butuh struct `NamedProviderModelConfig`
-   dan bikin TOML parse error. Cukup `default_model`.
-3. Field `api_key` **wajib ada**. Kalau dihapus, jcode gagal dengan
-   `Error: inline api_key not found in environment`. Buat server lokal tanpa auth,
-   tulis `api_key = ""` (string kosong, bukan dihilangkan).
+1. The key is **`default_model`**, not `model`. With `model`, jcode silently ignores it
+   and falls back to the catalog default (not an error, but the wrong model).
+2. **Never** write `models = [...]`. That shape expects a `NamedProviderModelConfig`
+   struct and produces a TOML parse error. `default_model` is enough.
+3. The `api_key` field is **required**. Remove it and jcode fails with
+   `Error: inline api_key not found in environment`. For a local server without auth,
+   write `api_key = ""` (empty string, do not omit it).
 
-Config lain di file kamu (komentar, urutan key, `[[providers.x.models]]`) dipertahankan
-byte-per-byte. Hanya section provider yang disentuh yang berubah.
+Everything else in your file (comments, key order, `[[providers.x.models]]`) is
+preserved byte for byte. Only the provider section being changed is rewritten.
 
-### Mode penyimpanan API key
+### API key storage modes
 
-Saat add/edit, manager nawarin dua mode (`--key-store` di CLI):
+When adding or editing, the manager offers two modes (`--key-store` on the CLI):
 
-| Mode | Isi config | Lokasi key | Cocok buat |
-| ---- | ---------- | ---------- | ---------- |
-| `inline` (default) | `api_key = "..."` | `~/.jcode/config.toml` | Simpel, satu file |
-| `envfile` | `api_key_env` + `env_file` + `type`/`auth` | `<XDG_CONFIG_HOME>/jcode/provider-<nama>.env`, mode `600` | Sama persis kayak `jcode provider add`, key kepisah dari config |
+| Mode | Config contains | Key location | Good for |
+| ---- | --------------- | ------------ | -------- |
+| `inline` (default) | `api_key = "..."` | `~/.jcode/config.toml` | Simplicity, one file |
+| `envfile` | `api_key_env` + `env_file` + `type`/`auth` | `<XDG_CONFIG_HOME>/jcode/provider-<name>.env`, mode `600` | Exactly what `jcode provider add` writes; key kept out of the config |
 
-Config ditulis dengan mode `600` karena bisa nongkrongin API key di dalamnya.
+The config is written with mode `600` because it can hold an API key.
 
-## Daemon jcode: kenapa harus stop dulu
+## jcode daemon: why the stop comes first
 
-jcode punya background daemon yang persisten. Flag `--provider` /
-`--provider-profile` **cuma berlaku pas server pertama kali start**. Kalau daemon
-udah jalan, jcode bilang:
+jcode runs a persistent background daemon. The `--provider` / `--provider-profile`
+flags **only apply when the server is starting fresh**. If a daemon is already running,
+jcode says:
 
 > Server already running; provider/model flags only apply when starting a new server.
 
-Jadi menu 7 dan `--launch` jalanin urutan ini:
+So menu 7 and `--launch` do this:
 
-1. `jcode server stop --force` (error diabaikan kalau server nggak jalan)
-2. tunggu 0.5 detik
-3. `jcode --provider openai-compatible --provider-profile <nama> [--model <model>]`
-4. setelah keluar dari jcode, balik ke menu
+1. `jcode server stop --force` (errors ignored when no server is running)
+2. wait 0.5 seconds
+3. `jcode --provider openai-compatible --provider-profile <name> [--model <model>]`
+4. return to the menu once you exit jcode
 
-Kalau kamu prefer manual, menu 6 ngasih command-nya dan ingetin soal daemon ini.
+If you prefer doing it by hand, menu 6 prints the command and reminds you about the
+daemon.
 
-> Perhatian: `server stop` itu mematikan daemon, termasuk session headless/swarm
-> yang lagi jalan. Manager selalu minta konfirmasi dulu.
+> Heads up: `server stop` kills the daemon, including any running headless/swarm
+> sessions. The manager always asks for confirmation first.
 
-## Keamanan
+## Safety
 
-- API key ditampilkan ter-mask: `sk-abc...xyz` (4 karakter awal + 4 akhir).
-  Key pendek (<= 8 karakter) di-mask total.
-- Backup otomatis sebelum **setiap** penulisan: `config.toml.backup.YYYYMMDDHHmmss`.
-  Kalau dalam detik yang sama udah ada, dikasih suffix angka biar nggak ketimpa.
-- Tulis config pakai temp file + `os.replace`, jadi nggak ada kondisi file setengah jadi.
-- Hasil config divalidasi TOML sebelum ditulis. Kalau invalid, perubahan dibatalkan
-  dan file lama nggak disentuh.
-- Setelah add/edit, manager jalanin `jcode provider current --provider-profile <nama>`
-  buat mastiin jcode beneran bisa baca profile-nya (skip otomatis kalau `--config`
-  dipakai, karena jcode selalu baca path default).
-- Folder config dibikin otomatis kalau belum ada.
+- API keys are masked on screen: `sk-abc...xyz` (first 4 + last 4 characters).
+  Short keys (<= 8 characters) are masked entirely.
+- Automatic backup before **every** write: `config.toml.backup.YYYYMMDDHHmmss`.
+  If one already exists for that second, a numeric suffix is added so nothing is lost.
+- Configs are written through a temp file plus an atomic rename, so a half-written file
+  can never happen.
+- The resulting config is validated as TOML before being written. If it is invalid the
+  change is cancelled and the old file is left alone.
+- After add/edit the manager runs `jcode provider current --provider-profile <name>` to
+  confirm jcode can actually read the profile (skipped automatically with `--config`,
+  since jcode always reads its default path).
+- The config directory is created automatically when missing.
 
 ## Testing
 
-Tiga lapis test, dari yang paling murah sampai paling keras:
+Three layers, from cheapest to strictest:
 
 ```bash
-python3 tests/test-platform-paths.py   # 16 test: deteksi OS & path per platform
-bash tests/smoke-test.sh               # 64 test engine Python
-bash tests/smoke-test-fallback.sh      # 57 test engine Bash
-bash tests/verify-with-jcode.sh        # 20 test pakai binary jcode asli (sandbox)
+python3 tests/test-platform-paths.py   # 16 tests: per-platform OS & path detection
+bash tests/smoke-test.sh               # 64 tests, Python engine
+bash tests/smoke-test-fallback.sh      # 57 tests, Bash engine
+bash tests/verify-with-jcode.sh        # 20 tests against the real jcode binary (sandbox)
 ```
 
-- **test-platform-paths.py** - nyimulasiin cabang Windows (`os.name == 'nt'`, env
-  `USERPROFILE`/`APPDATA`/`LOCALAPPDATA`) dan macOS (`sys.platform == 'darwin'`),
-  plus Linux/WSL dan nama env var provider.
-- **smoke-test.sh** - engine Python: add/list/edit/delete/quick/generate/restore/menu,
-  masking key, integritas config (komentar + provider lain nggak keganggu), mode envfile,
-  urutan `stop daemon` di fitur launch (pakai stub `jcode`, daemon asli aman),
-  kompatibilitas syntax Python 3.8, dan pemilihan engine.
-- **smoke-test-fallback.sh** - hal yang sama buat engine Bash, plus cek delegasi ke
-  Python (termasuk lewat symlink) dan fallback otomatis kalau Python nggak ada.
-- **verify-with-jcode.sh** - jalanin binary jcode asli di sandbox bubblewrap dengan
-  HOME terpisah dan socket daemon terpisah, lalu ngebuktiin:
-  - `jcode provider current` bisa baca config hasil manager (engine Python **dan** Bash)
-  - `default_model` dari profile beneran kepakai
-  - chat beneran jalan (`run` balikin `PONG` dari mock server)
-  - API key beneran dikirim sebagai `Authorization: Bearer ...`
-  - mode `envfile` juga jalan
-  - `server start --provider-profile` nempel di proses daemon
-  - `server stop --force` matiin daemon dan ngosongin socket
+- **test-platform-paths.py** - simulates the Windows branch (`os.name == 'nt'`, with
+  `USERPROFILE`/`APPDATA`/`LOCALAPPDATA`) and the macOS branch
+  (`sys.platform == 'darwin'`), plus Linux/WSL and the provider env var names.
+- **smoke-test.sh** - Python engine: add/list/edit/delete/quick/generate/restore/menu,
+  key masking, config integrity (comments and other providers untouched), the envfile
+  mode, the `stop daemon` ordering in the launch flow (via a stub `jcode`, so the real
+  daemon is never touched), Python 3.8 syntax compatibility, and engine selection.
+- **smoke-test-fallback.sh** - the same for the Bash engine, plus delegation to Python
+  (including through a symlink) and the automatic fallback when Python is missing.
+- **verify-with-jcode.sh** - runs the real jcode binary inside a bubblewrap sandbox with
+  a separate HOME and a separate daemon socket, proving:
+  - `jcode provider current` accepts configs written by both engines
+  - the profile's `default_model` is really used
+  - a chat works (the mock server returns `PONG`)
+  - the API key is actually sent as `Authorization: Bearer ...`
+  - the `envfile` mode works end to end
+  - `server start --provider-profile` attaches the flags to the daemon process
+  - `server stop --force` kills the daemon and clears the socket
 
-### Status verifikasi (jujur, per platform)
+### Verification status (honest, per platform)
 
-| Bagian | Linux | macOS | Windows |
-| ------ | ----- | ----- | ------- |
-| Deteksi path config & env dir | dites langsung | simulasi | simulasi |
-| CRUD provider + config TOML (engine Python) | dites langsung | sama (kode shared) | sama (kode shared) |
-| CRUD provider + config TOML (engine Bash) | dites langsung | belum | belum |
-| Config dibaca jcode asli (kedua engine) | dites langsung | belum | belum |
-| Menu, warna, clipboard | dites langsung | belum | belum (clip pakai `clip`) |
-| Launcher `.sh` | dites langsung | belum | belum (Git Bash/MSYS) |
-| Launcher `.ps1` | n/a | n/a | **belum dites** (nggak ada PowerShell di mesin test) |
+| Area | Linux | macOS | Windows |
+| ---- | ----- | ----- | ------- |
+| Config path & env dir detection | tested live | simulated | simulated |
+| Provider CRUD + TOML (Python engine) | tested live | same code path | same code path |
+| Provider CRUD + TOML (Bash engine) | tested live | not yet | not yet |
+| Real jcode reads the config (both engines) | tested live | not yet | not yet |
+| Menu, colors, clipboard | tested live | not yet | not yet (`clip` for clipboard) |
+| `.sh` launcher | tested live | not yet | not yet (Git Bash/MSYS) |
+| `.ps1` launcher | n/a | n/a | **not tested** (no PowerShell on the test machine) |
 
-"simulasi" artinya patch `os.name`/`sys.platform` + env var khas platform lalu cek
-path yang dihasilkan, bukan jalan di OS aslinya. Yang belum dites di macOS/Windows:
-rendering backslash, PowerShell launcher, dan clipboard integration. Launcher `.ps1`
-cuma nyari Python (nggak ada engine PowerShell), jadi di Windows tetap butuh Python 3.8+.
+"simulated" means `os.name`/`sys.platform` plus platform-specific env vars are patched
+and the resulting path is asserted, not that it ran on that OS. Still unverified on
+macOS/Windows: backslash rendering, the PowerShell launcher, and clipboard integration.
+The `.ps1` launcher only locates Python (there is no PowerShell engine), so Windows
+still needs Python 3.8+.
 
-Satu bagian yang **nggak bisa** diotomasi di sini: perilaku "flag provider diabaikan
-kalau daemon udah jalan", karena itu cuma kepakai sama client interaktif (TUI /
-`jcode connect`) dan butuh terminal. Yang bisa diverifikasi headless (flag nempel di
-proses server, urutan stop sebelum start, `stop --force` aman kalau server mati)
-sudah masuk test.
+One thing that **cannot** be automated here: the "flags are ignored while the daemon is
+running" behaviour, because it only affects interactive clients (the TUI / `jcode
+connect`) and needs a terminal. Everything headless-verifiable (flags attached to the
+server process, stop-before-start ordering, `stop --force` being safe when idle) is
+covered.
 
-Hasil terakhir di mesin ini (jcode v0.98.1, Linux): **16 ok / 0 fail** (platform),
-**64 ok / 0 fail** (engine Python), **57 ok / 0 fail** (engine Bash),
-**20 ok / 0 fail** (acceptance pakai binary jcode asli). Total 157 check.
+Last results on this machine (jcode v0.98.1, Linux): **16 ok / 0 fail** (platform),
+**64 ok / 0 fail** (Python engine), **57 ok / 0 fail** (Bash engine),
+**20 ok / 0 fail** (acceptance with the real jcode binary). 157 checks total.
 
 ## Troubleshooting
 
 **"Server already running; provider/model flags only apply when starting a new server"**
-Daemon masih hidup. Pakai menu 7 / `--launch`, atau manual: `jcode server stop --force`.
+The daemon is still alive. Use menu 7 / `--launch`, or manually:
+`jcode server stop --force`.
 
-**Config nggak kebaca / TOML parse error**
-Cek `~/.jcode/config.toml` lewat menu 2, atau `python3 jcode-manager.py --info`.
-Kalau abis nulis manual, kemungkinan kena `models = [...]`. Balikin lewat menu 9.
+**Config unreadable / TOML parse error**
+Inspect `~/.jcode/config.toml` via menu 2, or `python3 jcode-manager.py --info`.
+If you edited it by hand, you probably hit `models = [...]`. Roll back with menu 9.
 
-**Provider ditolak: `Unknown provider profile 'x'`**
-Section `[providers.x]` belum ada. Cek menu 2. Ingat flag-nya
-`--provider-profile`, bukan `--provider` doang.
+**Provider rejected: `Unknown provider profile 'x'`**
+The `[providers.x]` section does not exist. Check menu 2. Remember the flag is
+`--provider-profile`, not just `--provider`.
 
-**Provider ditolak: `inline api_key not found in environment`**
-Field `api_key` nggak ada di section itu. Buat server tanpa auth, isi `api_key = ""`.
+**Provider rejected: `inline api_key not found in environment`**
+That section has no `api_key` field. For a server without auth, set `api_key = ""`.
 
-**Restore config dari backup**
-Menu 9, atau lihat file `~/.jcode/config.toml.backup.*` terus restore manual.
+**Restoring a config from backup**
+Menu 9, or look for `~/.jcode/config.toml.backup.*` and restore manually.
 
-**`upstream connection lost` pas kerjaan panjang**
-Ini bukan masalah manager atau config. Ini stream model yang diputus upstream
-(gateway/router) kalau generasi kepanjangan. Cek `~/.jcode/logs/jcode-*.log`:
-kalau ketemu `phase=stream_event_error error="upstream connection lost"`, artinya
-turn yang jalan terlalu lama (bukan config kamu yang salah). Solusinya: pindah ke
-provider/model yang lebih stabil lewat manager ini, atau pecah kerjaannya.
+**`upstream connection lost` on long jobs**
+Not a manager or config problem. The model stream is being cut upstream (gateway/router)
+when a generation runs too long. Check `~/.jcode/logs/jcode-*.log`: if you see
+`phase=stream_event_error error="upstream connection lost"`, the turn simply ran too
+long (your config is fine). Fix: switch to a more stable provider/model through this
+manager, or split the work into smaller steps.
 
-## Path per OS
+## Paths per OS
 
-| OS | Config | Env file provider |
-| -- | ------ | ----------------- |
+| OS | Config | Provider env files |
+| -- | ------ | ------------------ |
 | Linux | `~/.jcode/config.toml` | `$XDG_CONFIG_HOME/jcode/` (default `~/.config/jcode/`) |
 | macOS | `~/.jcode/config.toml` | `$XDG_CONFIG_HOME/jcode/` (default `~/.config/jcode/`) |
 | Windows | `%USERPROFILE%\.jcode\config.toml` | `%APPDATA%\jcode\` |
 
-Binary jcode yang dicari: `jcode` di PATH, lalu `~/.local/bin/jcode` (Linux),
-`/usr/local/bin/jcode` + `/opt/homebrew/bin/jcode` (macOS),
+The jcode binary is looked up as: `jcode` on PATH, then `~/.local/bin/jcode` (Linux),
+`/usr/local/bin/jcode` and `/opt/homebrew/bin/jcode` (macOS),
 `%LOCALAPPDATA%\jcode\bin\jcode.exe` (Windows).
 
-Override path config (berguna buat testing): `--config /path/ke/config.toml`
-atau env `JCODE_MANAGER_CONFIG`.
+Override the config path (useful for testing): `--config /path/to/config.toml` or the
+`JCODE_MANAGER_CONFIG` env var.
 
-## Env var yang dipakai
+## Environment variables
 
-| Var | Fungsi |
-| --- | ------ |
-| `JCODE_MANAGER_CONFIG` | Override path config.toml |
+| Var | Purpose |
+| --- | ------- |
+| `JCODE_MANAGER_CONFIG` | Override the config.toml path |
 | `JCODE_MANAGER_ENGINE` | `auto` (default) / `python` / `bash` |
-| `JCODE_MANAGER_PYTHON` | Paksa interpreter Python tertentu di launcher |
-| `NO_COLOR` / `JCODE_MANAGER_NO_COLOR` | Matiin warna ANSI |
+| `JCODE_MANAGER_PYTHON` | Force a specific Python interpreter in the launcher |
+| `NO_COLOR` / `JCODE_MANAGER_NO_COLOR` | Disable ANSI colors |
 
-## Alternatif resmi dari jcode
+## Language note
 
-jcode sendiri punya:
+Documentation ships in two languages: this file (English) and
+[README.id.md](README.id.md) (Indonesian). The interactive prompts and messages inside
+the scripts are Indonesian/English mixed, matching the original author's style; there is
+no runtime language switch yet. Open an issue if you need one.
+
+## Official jcode alternative
+
+jcode itself ships:
 
 ```bash
 jcode provider add mygw --base-url https://api.example.com/v1 --model gpt-4o
@@ -357,13 +395,13 @@ jcode provider current -p openai-compatible --provider-profile mygw
 jcode provider list
 ```
 
-Manager ini nambahin: menu interaktif, list + masking key, edit/hapus, quick start,
-generate command, backup + restore, dan launch yang otomatis ngurus daemon.
-Kalau kamu cuma butuh nambah provider sekali, `jcode provider add` udah cukup.
+This manager adds: an interactive menu, listing with key masking, edit/delete, quick
+start templates, command generation, backup + restore, and a launch flow that handles
+the daemon. If all you need is to add one provider once, `jcode provider add` is enough.
 
-Beda kecil yang perlu kamu tau: `jcode provider add` nulis format lengkap
-(`type`, `auth`, `api_key_env`, `env_file`, `requires_api_key`, plus `[[providers.x.models]]`)
-tanpa bikin backup config, dan ninggalin `[[providers.x.models]]` yang bisa
-bikin bingung. Manager ini default-nya nulis 3 field minimal + selalu bikin
-backup dulu, dan punya mode `--key-store envfile` kalau kamu mau format lengkap
-kayak jcode.
+Two small differences worth knowing: `jcode provider add` writes the long form
+(`type`, `auth`, `api_key_env`, `env_file`, `requires_api_key`, plus
+`[[providers.x.models]]`), does not create a config backup, and leaves behind a
+`[[providers.x.models]]` table that can be confusing. This manager writes the minimal
+three fields by default, always backs up first, and offers `--key-store envfile` if you
+want the long form.
