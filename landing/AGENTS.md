@@ -6,14 +6,18 @@
 - Rounded is the house style. Use the radius scale in `app/globals.css`
   (`--r-xs`…`--r-xl`, `--r-pill`) instead of ad-hoc values. Buttons, chips and the
   header are pills; cards and panels use `--r-lg`; fields use `--r-sm`.
-- Every palette value comes from a token. If a new grey is needed, add a token
-  rather than a literal, and keep it neutral (equal or near-equal RGB channels).
+- Palette and surface values come from the `:root` tokens (`--ink*`, `--paper*`,
+  `--ash*`, `--wash`, `--wash-strong`, `--edge`, `--line*`). Add a token rather
+  than a literal, and keep it neutral (equal or near-equal RGB channels).
+  One-off glow alphas inside `box-shadow` and gradients are the only inline
+  colours, and they must stay white-based.
 - Prefer gapped, rounded grids over shared hairline borders. Section rules fade
   at the edges (`.plate::before`) so the scroll rhythm stays smooth.
 - The projection nav (`.plate-nav`) is anchored to the rail with
-  `calc(50vw - var(--rail) / 2 - …)` and only renders above 1180px width and
-  680px height, so it can never collide with the hero copy. Keep that anchoring
-  if you touch it.
+  `calc(50vw - var(--rail) / 2 - …)`, its ruler hairline hangs on the outside
+  (`.plate-nav::after`, `left: -9px`), and it only renders above 1424x680 —
+  measured, not guessed: the stops need 44px plus a gutter, and below that the
+  nav would sit on the copy. Re-measure if you widen the stops or the ruler.
 - UI primitives live in `components/ui/`: shadcn/ui `base-maia` with Base UI and Tailwind CSS 4. Style these primitives for the brand; do not replace their controls with raw interactive HTML in feature components.
 - Preserve semantic headings, landmarks and links. Use Button render composition for call-to-action links.
 - Reusable, list-shaped copy (menu, safety, CLI, FAQ, templates) lives in

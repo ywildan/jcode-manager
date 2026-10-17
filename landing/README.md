@@ -31,7 +31,7 @@ CSS fallback when a GPU is unavailable. The loading curtain also leaves the
 content accessible with JavaScript disabled. Keyboard controls, visible focus and
 reduced-motion support are part of the experience, and buttons, fields, nav stops
 and copy controls are at least 44 pixels tall (inline links inside paragraphs are
-exempt). The projection nav appears above 1180 x 680 so it never crowds the copy.
+exempt). The projection nav appears above 1424 x 680 so it never crowds the copy.
 
 The provider studio previews a `[providers.<name>]` section and the matching
 launch command as you type. It writes nothing, stores nothing and never asks for
@@ -50,12 +50,17 @@ no claim about live provider availability, pricing or bookings.
 | `--ink-lift` | `#121212` | Hover surface |
 | `--paper` | `#f7f7f4` | Primary text and the one accent |
 | `--paper-soft` | `#e9e9e4` | Pressed and hovered fills |
+| `--paper-dim` | `#cfcfc8` | Quiet emphasis (strings, flags) |
 | `--ash` | `#a6a6a0` | Secondary text |
-| `--ash-dim` | `#71716b` | Tertiary text |
+| `--ash-dim` | `#7a7a74` | Tertiary text |
+| `--ink-deep` | `#030303` | Terminal and code wells |
+| `--wash` / `--wash-strong` | white at 3.5% / 6% | Surface tints and hover fills |
+| `--edge` | white at 14% | Fading section rules, focus rings |
 
 Radii come from one scale: `--r-xs` 8, `--r-sm` 12, `--r-md` 18, `--r-lg` 24,
 `--r-xl` 32 and `--r-pill`. Buttons, chips, pills and the header use the pill;
 cards use `--r-lg`. No hue is used anywhere: emphasis is contrast, not colour.
+Text colours clear 4.5:1 against every surface they are used on.
 
 ## Stack and assets
 
