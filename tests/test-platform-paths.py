@@ -199,12 +199,12 @@ class EnvNames(unittest.TestCase):
         self.assertEqual(manager.env_var_name("mygw"), "JCODE_PROVIDER_MYGW_API_KEY")
         self.assertEqual(manager.env_var_name("my-gw"), "JCODE_PROVIDER_MY_GW_API_KEY")
         self.assertEqual(manager.env_var_name("my.gw"), "JCODE_PROVIDER_MY_GW_API_KEY")
-        # kontrol: ini yang dipakai provider router9 di config nyata mesin ini
-        self.assertEqual(manager.env_var_name("router9"), "JCODE_PROVIDER_ROUTER9_API_KEY")
+        # kontrol: nama provider yang dipakai fixture test lain
+        self.assertEqual(manager.env_var_name("legacygw"), "JCODE_PROVIDER_LEGACYGW_API_KEY")
 
     def test_env_file_name(self):
         self.assertEqual(manager.env_file_name("mygw"), "provider-mygw.env")
-        self.assertEqual(manager.env_file_name("router9"), "provider-router9.env")
+        self.assertEqual(manager.env_file_name("legacygw"), "provider-legacygw.env")
 
 
 if __name__ == "__main__":

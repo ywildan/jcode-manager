@@ -41,20 +41,20 @@ fixture() {
     cat >"$CONFIG" <<'TOML'
 # komentar yang harus tetap ada
 [provider]
-default_provider = "router9"
-default_model = "oc/deepseek-v4.1-flash-free"
+default_provider = "legacygw"
+default_model = "legacy-model-1"
 
-[providers.router9]
+[providers.legacygw]
 type = "openai-compatible"
-base_url = "http://localhost:20128/v1"
+base_url = "http://localhost:8080/v1"
 auth = "bearer"
-api_key_env = "JCODE_PROVIDER_ROUTER9_API_KEY"
-env_file = "provider-router9.env"
-default_model = "oc/deepseek-v4.1-flash-free"
+api_key_env = "JCODE_PROVIDER_LEGACYGW_API_KEY"
+env_file = "provider-legacygw.env"
+default_model = "legacy-model-1"
 requires_api_key = true
 
-[[providers.router9.models]]
-id = "oc/deepseek-v4.1-flash-free"
+[[providers.legacygw.models]]
+id = "legacy-model-1"
 TOML
 }
 
@@ -149,7 +149,7 @@ check "backup config dibikin" test "$(ls "$WORK"/config.toml.backup.* 2>/dev/nul
 echo "-- list & masking --"
 check "key di-mask di list" contains "$WORK/list1.txt" 'sk-1\.\.\.cdef'
 check_not "key mentah nggak muncul di list" grep -q 'sk-1234567890abcdef' "$WORK/list1.txt"
-check "env-file provider kebaca" contains "$WORK/list1.txt" 'provider-router9.env'
+check "env-file provider kebaca" contains "$WORK/list1.txt" 'provider-legacygw.env'
 run --list --json >"$WORK/list.json" 2>/dev/null
 check "list --json valid" "$PY" -c "import json; json.load(open('$WORK/list.json'))"
 check "json punya field name" contains "$WORK/list.json" '"name": "alpha"'
@@ -198,14 +198,14 @@ import tomllib, sys
 tomllib.load(open('$CONFIG','rb'))
 "
 check "komentar asli kepertahanin" contains "$CONFIG" '# komentar yang harus tetap ada'
-check "provider lain (router9) utuh" contains "$CONFIG" 'api_key_env = "JCODE_PROVIDER_ROUTER9_API_KEY"'
-check "sub-table models router9 utuh" contains "$CONFIG" '\[\[providers.router9.models\]\]'
+check "provider lain (legacygw) utuh" contains "$CONFIG" 'api_key_env = "JCODE_PROVIDER_LEGACYGW_API_KEY"'
+check "sub-table models legacygw utuh" contains "$CONFIG" '\[\[providers.legacygw.models\]\]'
 
 echo "-- delete --"
 check "delete envguy" run --delete envguy --yes
 check_not "section envguy hilang" grep -q '\[providers.envguy\]' "$CONFIG"
-check "router9 masih ada" contains "$CONFIG" '\[providers.router9\]'
-check "models router9 masih ada" contains "$CONFIG" 'id = "oc/deepseek-v4.1-flash-free"'
+check "legacygw masih ada" contains "$CONFIG" '\[providers.legacygw\]'
+check "models legacygw masih ada" contains "$CONFIG" 'id = "legacy-model-1"'
 check_not "delete provider nggak ada = error" run --delete hantu --yes
 check "config masih valid setelah delete" "$PY" -c "
 import tomllib
