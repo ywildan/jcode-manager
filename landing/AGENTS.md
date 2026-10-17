@@ -11,6 +11,9 @@
   than a literal, and keep it neutral (equal or near-equal RGB channels).
   One-off glow alphas inside `box-shadow` and gradients are the only inline
   colours, and they must stay white-based.
+- The light whites are deliberately a touch warm (blue channel about 2-3% below
+  red and green, e.g. `--paper` `#f7f7f4`). Everything stays inside a channel
+  spread of 7, so a page-wide pixel scan must never find more than that.
 - Prefer gapped, rounded grids over shared hairline borders. Section rules fade
   at the edges (`.plate::before`) so the scroll rhythm stays smooth.
 - The projection nav (`.plate-nav`) is anchored to the rail with
