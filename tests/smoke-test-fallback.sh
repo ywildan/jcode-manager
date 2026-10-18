@@ -13,16 +13,30 @@ MANAGER="$HERE/../jcode-manager.sh"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/jcm-bash-test.XXXXXX")"
 export XDG_CONFIG_HOME="$WORK/xdg"
+export JCODE_MANAGER_APP_CONFIG="$XDG_CONFIG_HOME/jcode"  # sama di semua OS
+# buat cek TOML/JSON doang; engine yang dites tetap engine Bash
+PY="${PYTHON:-python3}"
 export JCODE_MANAGER_ENGINE=bash
 CONFIG="$WORK/config.toml"
 PASS=0
 FAIL=0
+SKIP=0
 
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
 pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n' "$1"; }
+skip() { SKIP=$((SKIP + 1)); printf '  skip %s\n' "$1"; }
+
+is_windows() { case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; *) return 1 ;; esac; }
+file_mode() { # portabel: GNU stat (-c) vs BSD stat (-f)
+    if stat -c '%a' "$1" >/dev/null 2>&1; then
+        stat -c '%a' "$1"
+    else
+        stat -f '%Lp' "$1"
+    fi
+}
 check() {
     local label="$1"; shift
     if "$@" >/dev/null 2>&1; then pass "$label"; else fail "$label"; fi
@@ -37,27 +51,27 @@ fixture() {
     cat >"$CONFIG" <<'TOML'
 # komentar yang harus tetap ada
 [provider]
-default_provider = "router9"
+default_provider = "legacygw"
 
-[providers.router9]
+[providers.legacygw]
 type = "openai-compatible"
-base_url = "http://localhost:20128/v1"
+base_url = "http://localhost:8080/v1"
 auth = "bearer"
-api_key_env = "JCODE_PROVIDER_ROUTER9_API_KEY"
-env_file = "provider-router9.env"
-default_model = "oc/deepseek-v4.1-flash-free"
+api_key_env = "JCODE_PROVIDER_LEGACYGW_API_KEY"
+env_file = "provider-legacygw.env"
+default_model = "legacy-model-1"
 requires_api_key = true
 
-[[providers.router9.models]]
-id = "oc/deepseek-v4.1-flash-free"
+[[providers.legacygw.models]]
+id = "legacy-model-1"
 TOML
 }
 
 run() { bash "$MANAGER" --config "$CONFIG" --no-color "$@"; }
-toml_ok() { python3 -c "import tomllib; tomllib.load(open('$CONFIG','rb'))"; }
+toml_ok() { "$PY" -c "import sys, tomllib; tomllib.load(open(sys.argv[1],'rb'))" "$CONFIG"; }
 
 mkdir -p "$XDG_CONFIG_HOME/jcode"
-printf 'JCODE_PROVIDER_ROUTER9_API_KEY=sk-envfilerouter-abcdef123456\n' >"$XDG_CONFIG_HOME/jcode/provider-router9.env"
+printf 'JCODE_PROVIDER_LEGACYGW_API_KEY=sk-envfilerouter-abcdef123456\n' >"$XDG_CONFIG_HOME/jcode/provider-legacygw.env"
 
 echo "== smoke test engine Bash (fallback tanpa Python) =="
 echo "workdir: $WORK"
@@ -91,10 +105,10 @@ echo "-- list & masking --"
 run --list >"$WORK/list.txt" 2>&1
 check "key di-mask" contains "$WORK/list.txt" 'sk-1\.\.\.cdef'
 check_not "key mentah nggak muncul" grep -q 'sk-1234567890abcdef' "$WORK/list.txt"
-check "key dari env file dibaca" contains "$WORK/list.txt" 'provider-router9.env'
+check "key dari env file dibaca" contains "$WORK/list.txt" 'provider-legacygw.env'
 check_not "key env file mentah nggak muncul" grep -q 'sk-envfilerouter-abcdef123456' "$WORK/list.txt"
 run --list --json >"$WORK/list.json" 2>/dev/null
-check "list --json valid" python3 -c "import json; json.load(open('$WORK/list.json'))"
+check "list --json valid" "$PY" -c "import json, sys; json.load(open(sys.argv[1]))" "$WORK/list.json"
 check "json punya field name" contains "$WORK/list.json" '"name": "alpha"'
 
 echo "-- edit --"
@@ -142,8 +156,8 @@ check "urutan stop sebelum start" test "$(head -1 "$JCM_STUB_LOG")" = "server st
 echo "-- delete --"
 check "delete groq" run --delete groq --yes
 check_not "section groq hilang" grep -q '\[providers.groq\]' "$CONFIG"
-check "router9 masih ada" contains "$CONFIG" '\[providers.router9\]'
-check "sub-table models masih ada" contains "$CONFIG" '\[\[providers.router9.models\]\]'
+check "legacygw masih ada" contains "$CONFIG" '\[providers.legacygw\]'
+check "sub-table models masih ada" contains "$CONFIG" '\[\[providers.legacygw.models\]\]'
 check "komentar asli kepertahanin" contains "$CONFIG" '# komentar yang harus tetap ada'
 check_not "delete provider nggak ada = error" run --delete hantu --yes
 check "config masih valid setelah delete" toml_ok
@@ -167,11 +181,16 @@ if command -v python3 >/dev/null 2>&1; then
         pass "mode auto delegasi ke Python"
     fi
     # Lewat symlink (kayak di PATH) folder script harus tetap ketemu.
-    ln -sfn "$MANAGER" "$WORK/bin/jcode-manager"
-    if JCODE_MANAGER_ENGINE=auto "$WORK/bin/jcode-manager" --version 2>&1 | grep -q 'bash engine'; then
-        fail "lewat symlink tetap delegasi ke Python"
+    # Windows dilewat: `ln -s` di MSYS default-nya bikin copy, bukan symlink.
+    if is_windows; then
+        skip "launcher lewat symlink (Windows: ln -s bikin copy)"
     else
-        pass "lewat symlink tetap delegasi ke Python"
+        ln -sfn "$MANAGER" "$WORK/bin/jcode-manager"
+        if JCODE_MANAGER_ENGINE=auto "$WORK/bin/jcode-manager" --version 2>&1 | grep -q 'bash engine'; then
+            fail "lewat symlink tetap delegasi ke Python"
+        else
+            pass "lewat symlink tetap delegasi ke Python"
+        fi
     fi
     # Python dipaksa nggak ada -> harus jatuh ke engine Bash
     mkdir -p "$WORK/shadow"
@@ -187,5 +206,5 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 
 echo
-echo "== hasil: $PASS ok, $FAIL fail =="
+echo "== hasil: $PASS ok, $FAIL fail, $SKIP skip =="
 [ "$FAIL" -eq 0 ]

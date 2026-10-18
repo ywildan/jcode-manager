@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """Test deteksi OS & path J-Code Provider Manager.
 
-Linux udah dites beneran lewat smoke-test.sh. File ini nutup bagian yang nggak
-mungkin dites langsung di mesin Linux: cabang Windows dan macOS.
+Dua lapis:
+  1. Simulasi cabang Windows & macOS (os.name / sys.platform / platform.system
+     dipatch, plus env var khas tiap OS), jadi jalan di OS apa pun.
+  2. Cabang Linux/WSL diuji dari host yang beneran Linux (di CI: ubuntu-latest),
+     karena asersinya soal platform host, bukan simulasi.
 
-Caranya: os.name / sys.platform / platform.system dipatch, plus env var khas
-Windows (USERPROFILE, APPDATA, LOCALAPPDATA) di-set ke folder temp, terus dicek
-path yang dihasilkan PlatformInfo.
-
-BATASAN yang perlu kamu tau: pathlib di Linux selalu PosixPath, jadi yang
-diverifikasi di sini adalah STRUKTUR path dan NAMA ENV VAR yang dipakai
-(mis. USERPROFILE vs HOME), bukan rendering backslash khas Windows. Itu
-diverifikasi pas jalan di Windows beneran.
+BATASAN yang perlu kamu tau: pathlib milih PosixPath vs WindowsPath dari os.name
+asli, jadi yang diverifikasi di sini adalah STRUKTUR path dan NAMA ENV VAR yang
+dipakai (mis. USERPROFILE vs HOME), bukan rendering backslash khas Windows. Itu
+diverifikasi pas jalan di Windows beneran (job CI windows-latest).
 
     python3 tests/test-platform-paths.py
 """
@@ -123,9 +122,16 @@ class WindowsPaths(unittest.TestCase):
         info = manager.PlatformInfo(str(target))
         self.assertEqual(info.config_path, target)
 
+    def test_override_env_dir_menang(self):
+        # Dipakai test cross-OS: di Windows env file default-nya di %APPDATA%,
+        # tapi override ini bikin test hermetik di semua OS.
+        target = self.root / "tmp" / "jcode"
+        with mock.patch.dict(os.environ, {"JCODE_MANAGER_APP_CONFIG": str(target)}, clear=False):
+            self.assertEqual(manager.PlatformInfo().app_config_dir, target)
+
 
 class MacPaths(unittest.TestCase):
-    """Simulasi macOS: sys.platform == 'darwin'."""
+    """Simulasi macOS: sys.platform == 'darwin' (host apa pun)."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -133,6 +139,12 @@ class MacPaths(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.home = self.root / "Users" / "budi"
         self.home.mkdir(parents=True, exist_ok=True)
+
+        # os.name ikut dipalsuin jadi posix: di host Windows nilainya 'nt',
+        # dan kalau dibiarin cabang Windows yang kepakai, bukan cabang macOS.
+        os_patcher = mock.patch.object(manager, "os", OsProxy(os, "posix"))
+        os_patcher.start()
+        self.addCleanup(os_patcher.stop)
 
         for target, name, value in (
             (manager.sys, "platform", "darwin"),
@@ -165,6 +177,10 @@ class MacPaths(unittest.TestCase):
         self.assertFalse(manager.PlatformInfo().is_linux)
 
 
+HOST_IS_LINUX = sys.platform.startswith("linux")
+
+
+@unittest.skipUnless(HOST_IS_LINUX, "asersinya soal platform host (Linux) - dijalankan di job CI ubuntu")
 class LinuxEnv(unittest.TestCase):
     """Linux/WSL: yang dites di CI/mesin nyata."""
 
@@ -191,6 +207,15 @@ class LinuxEnv(unittest.TestCase):
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(xdg)}, clear=False):
             self.assertEqual(manager.PlatformInfo().app_config_dir, xdg / "jcode")
 
+    def test_override_env_dir_menang(self):
+        target = Path(self.tmp.name) / "appconf"
+        env = {
+            "JCODE_MANAGER_APP_CONFIG": str(target),
+            "XDG_CONFIG_HOME": str(Path(self.tmp.name) / "xdg"),
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            self.assertEqual(manager.PlatformInfo().app_config_dir, target)
+
 
 class EnvNames(unittest.TestCase):
     """Nama env var & file provider harus sama kayak yang ditulis jcode sendiri."""
@@ -199,12 +224,12 @@ class EnvNames(unittest.TestCase):
         self.assertEqual(manager.env_var_name("mygw"), "JCODE_PROVIDER_MYGW_API_KEY")
         self.assertEqual(manager.env_var_name("my-gw"), "JCODE_PROVIDER_MY_GW_API_KEY")
         self.assertEqual(manager.env_var_name("my.gw"), "JCODE_PROVIDER_MY_GW_API_KEY")
-        # kontrol: ini yang dipakai provider router9 di config nyata mesin ini
-        self.assertEqual(manager.env_var_name("router9"), "JCODE_PROVIDER_ROUTER9_API_KEY")
+        # kontrol: nama provider yang dipakai fixture test lain
+        self.assertEqual(manager.env_var_name("legacygw"), "JCODE_PROVIDER_LEGACYGW_API_KEY")
 
     def test_env_file_name(self):
         self.assertEqual(manager.env_file_name("mygw"), "provider-mygw.env")
-        self.assertEqual(manager.env_file_name("router9"), "provider-router9.env")
+        self.assertEqual(manager.env_file_name("legacygw"), "provider-legacygw.env")
 
 
 if __name__ == "__main__":

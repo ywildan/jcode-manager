@@ -14,8 +14,9 @@ jcode-manager/
 ├── create-shortcut.sh      # bikin symlink / desktop entry
 ├── README.md               # versi English (default)
 ├── README.id.md            # file ini (Bahasa Indonesia)
+├── .github/workflows/ci.yml # CI: matrix 3 OS + acceptance pakai jcode asli
 └── tests/
-    ├── test-platform-paths.py  # deteksi OS & path (Windows/macOS simulasi)
+    ├── test-platform-paths.py  # deteksi OS & path (Windows/macOS simulasi, 18 test)
     ├── smoke-test.sh           # 64 test engine Python
     ├── smoke-test-fallback.sh  # 57 test engine Bash (tanpa Python)
     ├── verify-with-jcode.sh    # acceptance test pakai binary jcode asli (sandbox)
@@ -142,16 +143,22 @@ menu 1/5/9.
 | ----- | ------- |
 | jcode | wajib, karena manager cuma ngatur provider-nya. Kalau `jcode` nggak ada, manager tetap jalan tapi nggak bisa launch |
 | Python 3.8+ **atau** bash | salah satu aja. Tanpa Python, engine Bash otomatis dipakai |
-| bash 4.2+ buat engine Bash | macOS default masih bash 3.2, jadi pakai `brew install bash` kalau mau jalur non-Python di macOS |
+| bash 3.2+ buat engine Bash | CI jalanin semua test engine Bash di bash 3.2.57 bawaan macOS, jadi nggak butuh bash 4 |
 
 **Buat yang mau ngecek dulu sebelum percaya**
 
 ```bash
 bash tests/smoke-test.sh            # 64 test engine Python (config sementara, aman)
 bash tests/smoke-test-fallback.sh   # 57 test engine Bash
-python3 tests/test-platform-paths.py # 16 test deteksi OS/path
+python3 tests/test-platform-paths.py # 18 test deteksi OS/path
 bash tests/verify-with-jcode.sh      # 20 test pakai binary jcode asli, di sandbox
 ```
+
+Semuanya juga jalan tiap push lewat [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+tiga suite lokal jalan sebagai matrix di `ubuntu-latest`, `macos-latest`, dan
+`windows-latest`, plus satu job yang nge-download release jcode resmi terbaru buat
+jalanin acceptance test (dengan `JCM_REQUIRE_SANDBOX=1`, jadi sandbox yang nggak ada
+bikin job gagal, bukan lolos diam-diam).
 
 Semua test pakai config sementara di folder temp, jadi config jcode yang beneran
 nggak kesentuh. Yang perlu izin lebih cuma `--bin-dir /usr/local/bin`.
@@ -263,7 +270,7 @@ Kalau kamu prefer manual, menu 6 ngasih command-nya dan ingetin soal daemon ini.
 Tiga lapis test, dari yang paling murah sampai paling keras:
 
 ```bash
-python3 tests/test-platform-paths.py   # 16 test: deteksi OS & path per platform
+python3 tests/test-platform-paths.py   # 18 test: deteksi OS & path per platform
 bash tests/smoke-test.sh               # 64 test engine Python
 bash tests/smoke-test-fallback.sh      # 57 test engine Bash
 bash tests/verify-with-jcode.sh        # 20 test pakai binary jcode asli (sandbox)
@@ -290,20 +297,43 @@ bash tests/verify-with-jcode.sh        # 20 test pakai binary jcode asli (sandbo
 
 ### Status verifikasi (jujur, per platform)
 
+Yang ditandai "CI" jalan beneran tiap push lewat `.github/workflows/ci.yml`, di runner
+ubuntu / macOS (arm64) / Windows yang asli bukan simulasi.
+
+Dua catatan biar tabelnya nggak dibaca lebih dari kenyataannya: di baris path, "dites
+langsung" artinya cabang khusus OS itu yang jalan di runner tersebut, sementara
+`HOME`/`USERPROFILE`/`APPDATA`/`XDG_CONFIG_HOME` diarahkan ke folder temp dan suite-nya
+pakai override `--config` / `JCODE_MANAGER_APP_CONFIG`, jadi config asli nggak pernah
+kesentuh. Angkanya diambil dari log job, termasuk baris `skip` (lihat catatan di bawah).
+
 | Bagian | Linux | macOS | Windows |
 | ------ | ----- | ----- | ------- |
-| Deteksi path config & env dir | dites langsung | simulasi | simulasi |
-| CRUD provider + config TOML (engine Python) | dites langsung | sama (kode shared) | sama (kode shared) |
-| CRUD provider + config TOML (engine Bash) | dites langsung | belum | belum |
-| Config dibaca jcode asli (kedua engine) | dites langsung | belum | belum |
-| Menu, warna, clipboard | dites langsung | belum | belum (clip pakai `clip`) |
-| Launcher `.sh` | dites langsung | belum | belum (Git Bash/MSYS) |
-| Launcher `.ps1` | n/a | n/a | **belum dites** (nggak ada PowerShell di mesin test) |
+| Deteksi path config & env dir | dites langsung | dites langsung (CI) | dites langsung (CI) |
+| CRUD provider + TOML, engine Python (64 test) | dites langsung | dites langsung (CI) | dites langsung, 1 skip (CI) |
+| CRUD provider + TOML, engine Bash (57 test) | dites langsung | dites langsung (CI) | dites langsung, 1 skip (CI) |
+| Pemilihan engine + launcher `.sh` | dites langsung | dites langsung (CI) | dites langsung (CI) |
+| Alur launch (stub jcode) | dites langsung | dites langsung (CI) | dites langsung (CI, stub `.cmd`) |
+| Mode env file ditulis `0600` | dites langsung | dites langsung (CI) | n/a, Windows nggak punya mode POSIX |
+| Config dibaca binary jcode asli | dites langsung (CI, download release) | belum | belum |
+| Launcher `.ps1` | n/a | n/a | belum dites (cuma nyari Python) |
+| Clipboard | belum kecover | belum kecover | belum kecover |
 
-"simulasi" artinya patch `os.name`/`sys.platform` + env var khas platform lalu cek
-path yang dihasilkan, bukan jalan di OS aslinya. Yang belum dites di macOS/Windows:
-rendering backslash, PowerShell launcher, dan clipboard integration. Launcher `.ps1`
-cuma nyari Python (nggak ada engine PowerShell), jadi di Windows tetap butuh Python 3.8+.
+Catatan pentingnya:
+
+- **Di Windows ada dua assert yang sengaja di-skip**: `ln -s` di MSYS default-nya nyalin
+  (jadi resolusi symlink launcher nggak keuji di sana), dan Windows nggak punya bit permission
+  POSIX (jadi cek `0600` nggak ada artinya). Keduanya dicetak `skip` di log CI, jadi jumlah "ok"
+  nggak digelembungin.
+- **Test launch di Windows pakai stub `.cmd`**, bukan stub bash: `CreateProcess` nggak bisa
+  jalanin script shell tanpa ekstensi. Test ini udah "balik modal": dia nangkep bug beneran
+  di mana launch gagal kalau jcode terpasang sebagai `.cmd`/`.bat`, karena engine ngirim nama
+  pendek `jcode` (dan `CreateProcess` cuma nambahin `.exe` sendiri).
+- **Acceptance pakai jcode asli cuma di Linux**, karena butuh bubblewrap buat misahin `HOME`
+  dan socket daemon. Di macOS/Windows format config-nya diuji lewat simulasi, bukan sama
+  jcode-nya langsung.
+- **Clipboard dan launcher `.ps1` butuh sesi desktop**, jadi nggak bisa dicover job CI mana pun.
+  Launcher `.ps1` cuma nyari Python (nggak ada engine PowerShell), jadi di Windows tetap butuh
+  Python 3.8+.
 
 Satu bagian yang **nggak bisa** diotomasi di sini: perilaku "flag provider diabaikan
 kalau daemon udah jalan", karena itu cuma kepakai sama client interaktif (TUI /
@@ -311,9 +341,11 @@ kalau daemon udah jalan", karena itu cuma kepakai sama client interaktif (TUI /
 proses server, urutan stop sebelum start, `stop --force` aman kalau server mati)
 sudah masuk test.
 
-Hasil terakhir di mesin ini (jcode v0.98.1, Linux): **16 ok / 0 fail** (platform),
+Hasil terakhir (jcode v0.98.1, Linux): **18 ok / 0 fail** (platform),
 **64 ok / 0 fail** (engine Python), **57 ok / 0 fail** (engine Bash),
-**20 ok / 0 fail** (acceptance pakai binary jcode asli). Total 157 check.
+**20 ok / 0 fail** (acceptance pakai binary jcode asli). Total 159 check.
+Di CI: ubuntu/macOS **64 + 57 ok, 0 fail**, Windows **63 + 56 ok, 0 fail, 2 skip**,
+acceptance **20 ok / 0 fail**.
 
 ## Troubleshooting
 
@@ -361,8 +393,10 @@ atau env `JCODE_MANAGER_CONFIG`.
 | Var | Fungsi |
 | --- | ------ |
 | `JCODE_MANAGER_CONFIG` | Override path config.toml |
+| `JCODE_MANAGER_APP_CONFIG` | Override folder app config (tempat `env_file` provider). Buat test: di Windows default-nya `%APPDATA%\jcode`, makanya suite di CI nge-pin ini ke folder temp |
 | `JCODE_MANAGER_ENGINE` | `auto` (default) / `python` / `bash` |
 | `JCODE_MANAGER_PYTHON` | Paksa interpreter Python tertentu di launcher |
+| `JCM_REQUIRE_SANDBOX` | `1` bikin `verify-with-jcode.sh` gagal (bukan skip) kalau bubblewrap/jcode nggak ada - dipakai CI |
 | `NO_COLOR` / `JCODE_MANAGER_NO_COLOR` | Matiin warna ANSI |
 
 ## Alternatif resmi dari jcode

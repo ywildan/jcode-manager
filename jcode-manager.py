@@ -285,7 +285,14 @@ class PlatformInfo:
         return self.home / ".jcode" / "config.toml"
 
     def _resolve_app_config_dir(self) -> Path:
-        """Folder app config jcode. Ini lokasi env file provider (api_key_env)."""
+        """Folder app config jcode. Ini lokasi env file provider (api_key_env).
+
+        Override lewat JCODE_MANAGER_APP_CONFIG, biar test bisa hermetik di
+        semua OS (Windows default-nya %APPDATA%, bukan XDG_CONFIG_HOME).
+        """
+        override = os.environ.get("JCODE_MANAGER_APP_CONFIG")
+        if override:
+            return Path(override).expanduser()
         if self.is_windows:
             appdata = os.environ.get("APPDATA")
             if appdata:
@@ -1271,7 +1278,13 @@ class Manager:
         say(PAL.gray("  Keluar dari jcode kalau udah selesai, nanti balik ke menu ini."))
         say()
         try:
-            return subprocess.call(cmd)
+            # cmd[0] sengaja nama pendek biar command hasil generate enak dibaca,
+            # tapi pas dijalanin harus path yang beneran ketemu: CreateProcess di
+            # Windows cuma nambahin ".exe" sendiri, jadi jcode yang terpasang
+            # sebagai .cmd/.bat (atau shim) nggak bakal kejalanin tanpa ini.
+            found = shutil.which(cmd[0])
+            argv = [found] + list(cmd[1:]) if found else list(cmd)
+            return subprocess.call(argv)
         except OSError as exc:
             raise ManagerError("Gagal start jcode: %s" % exc)
 

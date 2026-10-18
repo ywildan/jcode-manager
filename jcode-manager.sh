@@ -124,7 +124,9 @@ detect_platform() {
         CONFIG_PATH="$HOME/.jcode/config.toml"
     fi
 
-    if [ "$IS_WINDOWS" = "1" ]; then
+    if [ -n "${JCODE_MANAGER_APP_CONFIG:-}" ]; then
+        APP_CONFIG_DIR="$JCODE_MANAGER_APP_CONFIG"
+    elif [ "$IS_WINDOWS" = "1" ]; then
         APP_CONFIG_DIR="${APPDATA:-$HOME/AppData/Roaming}/jcode"
     elif [ -n "${XDG_CONFIG_HOME:-}" ]; then
         APP_CONFIG_DIR="$XDG_CONFIG_HOME/jcode"

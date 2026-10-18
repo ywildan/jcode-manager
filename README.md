@@ -6,6 +6,7 @@ An interactive manager for jcode CLI providers. Universal: runs on **Linux**,
 **macOS**, and **Windows** (PowerShell/CMD) with either Python 3.8+ or plain bash.
 
 ![engine: python + bash](https://img.shields.io/badge/engine-Python%20%2B%20Bash-blue)
+[![CI](https://github.com/ywildan/jcode-manager/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ywildan/jcode-manager/actions/workflows/ci.yml)
 
 ## What it does
 
@@ -24,8 +25,9 @@ jcode-manager/
 ├── create-shortcut.sh      # symlink / desktop entry helper
 ├── README.md               # this file (English)
 ├── README.id.md            # Indonesian version
+├── .github/workflows/ci.yml # CI: 3-OS matrix + acceptance with the real jcode
 └── tests/
-    ├── test-platform-paths.py  # OS & path detection (Windows/macOS simulated)
+    ├── test-platform-paths.py  # OS & path detection (Windows/macOS simulated, 18 tests)
     ├── smoke-test.sh           # 64 tests, Python engine
     ├── smoke-test-fallback.sh  # 57 tests, Bash engine
     ├── verify-with-jcode.sh    # acceptance tests with the real jcode binary
@@ -151,16 +153,23 @@ files are written only when the user picks menu 1/5/9 themselves.
 | ------ | ----- |
 | jcode | required; the manager only manages providers. Without it the manager still runs but cannot launch jcode |
 | Python 3.8+ **or** bash | either one. Without Python the Bash engine is used automatically |
-| bash 4.2+ for the Bash engine | macOS still ships bash 3.2, so `brew install bash` if you want the non-Python path there |
+| bash 3.2+ for the Bash engine | CI runs the whole Bash-engine suite on macOS' stock bash 3.2.57, so nothing here needs bash 4 |
 
 **For anyone who wants to check before trusting**
 
 ```bash
 bash tests/smoke-test.sh             # 64 tests, Python engine (temporary config, safe)
 bash tests/smoke-test-fallback.sh    # 57 tests, Bash engine
-python3 tests/test-platform-paths.py # 16 tests, OS/path detection
+python3 tests/test-platform-paths.py # 18 tests, OS/path detection
 bash tests/verify-with-jcode.sh      # 20 tests against the real jcode binary, sandboxed
 ```
+
+All of that also runs on every push through
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml): the three local suites run as a
+matrix on `ubuntu-latest`, `macos-latest`, and `windows-latest`, and a separate job
+downloads the latest official jcode release and runs the acceptance test (with
+`JCM_REQUIRE_SANDBOX=1`, so a missing sandbox fails the job instead of silently
+skipping it).
 
 Every test uses a throwaway config in a temp directory, so your real jcode config is
 never touched. The only step that needs elevated rights is `--bin-dir /usr/local/bin`.
@@ -274,7 +283,7 @@ daemon.
 Three layers, from cheapest to strictest:
 
 ```bash
-python3 tests/test-platform-paths.py   # 16 tests: per-platform OS & path detection
+python3 tests/test-platform-paths.py   # 18 tests: per-platform OS & path detection
 bash tests/smoke-test.sh               # 64 tests, Python engine
 bash tests/smoke-test-fallback.sh      # 57 tests, Bash engine
 bash tests/verify-with-jcode.sh        # 20 tests against the real jcode binary (sandbox)
@@ -301,21 +310,43 @@ bash tests/verify-with-jcode.sh        # 20 tests against the real jcode binary 
 
 ### Verification status (honest, per platform)
 
+Everything marked "CI" runs for real on every push in `.github/workflows/ci.yml`, on a
+genuine ubuntu / macOS (arm64) / Windows runner - not a simulation.
+
+Two notes so the table is not read as more than it is: on the path rows, "tested live"
+means the OS-specific branch of the path logic runs on that runner, with
+`HOME`/`USERPROFILE`/`APPDATA`/`XDG_CONFIG_HOME` redirected into temp dirs and the suites
+passing `--config` / `JCODE_MANAGER_APP_CONFIG`, so no real config is ever touched. The
+counts come from the job logs, `skip` lines included (see the bullets below).
+
 | Area | Linux | macOS | Windows |
 | ---- | ----- | ----- | ------- |
-| Config path & env dir detection | tested live | simulated | simulated |
-| Provider CRUD + TOML (Python engine) | tested live | same code path | same code path |
-| Provider CRUD + TOML (Bash engine) | tested live | not yet | not yet |
-| Real jcode reads the config (both engines) | tested live | not yet | not yet |
-| Menu, colors, clipboard | tested live | not yet | not yet (`clip` for clipboard) |
-| `.sh` launcher | tested live | not yet | not yet (Git Bash/MSYS) |
-| `.ps1` launcher | n/a | n/a | **not tested** (no PowerShell on the test machine) |
+| Config path & env dir detection | tested live | tested live (CI) | tested live (CI) |
+| Provider CRUD + TOML, Python engine (64 tests) | tested live | tested live (CI) | tested live, 1 skip (CI) |
+| Provider CRUD + TOML, Bash engine (57 tests) | tested live | tested live (CI) | tested live, 1 skip (CI) |
+| Engine selection + `.sh` launcher | tested live | tested live (CI) | tested live (CI) |
+| Launch flow, stub jcode | tested live | tested live (CI) | tested live (CI, `.cmd` stub) |
+| env-file mode written as `0600` | tested live | tested live (CI) | n/a, no POSIX modes |
+| Real jcode binary reads the config | tested live (CI, downloaded release) | not yet | not yet |
+| `.ps1` launcher | n/a | n/a | not tested (it only locates Python) |
+| Clipboard integration | not covered | not covered | not covered |
 
-"simulated" means `os.name`/`sys.platform` plus platform-specific env vars are patched
-and the resulting path is asserted, not that it ran on that OS. Still unverified on
-macOS/Windows: backslash rendering, the PowerShell launcher, and clipboard integration.
-The `.ps1` launcher only locates Python (there is no PowerShell engine), so Windows
-still needs Python 3.8+.
+What the matrix is telling you:
+
+- **Windows skips two assertions on purpose**: `ln -s` copies instead of linking in MSYS by
+  default (so the launcher's symlink resolution is not exercised there), and Windows has no
+  POSIX permission bits (so the `0600` check is meaningless). Both print `skip` in the CI log,
+  so passing counts never get inflated.
+- **The Windows launch test uses a `.cmd` stub** instead of the bash stub, because
+  `CreateProcess` cannot start an extensionless shell script. That test already paid for
+  itself: it caught a real bug where launching a jcode installed as `.cmd`/`.bat` failed,
+  because the engine passed the bare name `jcode` (and `CreateProcess` only appends `.exe`).
+- **The real-jcode acceptance test is Linux-only** because it needs bubblewrap to hold a
+  separate `HOME` and daemon socket. On macOS/Windows the config format is asserted by the
+  simulation tests, not by jcode itself.
+- **Clipboard and the `.ps1` launcher need a desktop session**, so no CI job can cover them.
+  The `.ps1` launcher only locates Python (there is no PowerShell engine), so Windows still
+  needs Python 3.8+.
 
 One thing that **cannot** be automated here: the "flags are ignored while the daemon is
 running" behaviour, because it only affects interactive clients (the TUI / `jcode
@@ -374,8 +405,10 @@ Override the config path (useful for testing): `--config /path/to/config.toml` o
 | Var | Purpose |
 | --- | ------- |
 | `JCODE_MANAGER_CONFIG` | Override the config.toml path |
+| `JCODE_MANAGER_APP_CONFIG` | Override the app config dir (where provider `env_file`s live). Mostly for tests: on Windows the default is `%APPDATA%\jcode`, which is why the suites pin this to a temp dir |
 | `JCODE_MANAGER_ENGINE` | `auto` (default) / `python` / `bash` |
 | `JCODE_MANAGER_PYTHON` | Force a specific Python interpreter in the launcher |
+| `JCM_REQUIRE_SANDBOX` | `1` makes `verify-with-jcode.sh` fail instead of skipping when bubblewrap or jcode is missing (used by CI) |
 | `NO_COLOR` / `JCODE_MANAGER_NO_COLOR` | Disable ANSI colors |
 
 ## Language note
