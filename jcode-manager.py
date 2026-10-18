@@ -1278,7 +1278,13 @@ class Manager:
         say(PAL.gray("  Keluar dari jcode kalau udah selesai, nanti balik ke menu ini."))
         say()
         try:
-            return subprocess.call(cmd)
+            # cmd[0] sengaja nama pendek biar command hasil generate enak dibaca,
+            # tapi pas dijalanin harus path yang beneran ketemu: CreateProcess di
+            # Windows cuma nambahin ".exe" sendiri, jadi jcode yang terpasang
+            # sebagai .cmd/.bat (atau shim) nggak bakal kejalanin tanpa ini.
+            found = shutil.which(cmd[0])
+            argv = [found] + list(cmd[1:]) if found else list(cmd)
+            return subprocess.call(argv)
         except OSError as exc:
             raise ManagerError("Gagal start jcode: %s" % exc)
 
