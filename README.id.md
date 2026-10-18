@@ -1,6 +1,6 @@
 # J-Code Provider Manager
 
-[English](README.md) | **Bahasa Indonesia**
+[English](https://github.com/ywildan/jcode-manager) | **Bahasa Indonesia**
 
 Script interaktif buat ngatur provider jcode CLI. Universal: jalan di **Linux**,
 **macOS**, dan **Windows** (PowerShell/CMD) selama ada Python 3.8+ atau bash biasa.
@@ -398,6 +398,16 @@ atau env `JCODE_MANAGER_CONFIG`.
 | `JCODE_MANAGER_PYTHON` | Paksa interpreter Python tertentu di launcher |
 | `JCM_REQUIRE_SANDBOX` | `1` bikin `verify-with-jcode.sh` gagal (bukan skip) kalau bubblewrap/jcode nggak ada - dipakai CI |
 | `NO_COLOR` / `JCODE_MANAGER_NO_COLOR` | Matiin warna ANSI |
+
+## Catatan bahasa
+
+Dokumentasi ini ada dua bahasa: file ini (Indonesia) dan
+[README.md](https://github.com/ywildan/jcode-manager) (English, yang tampil di halaman awal
+repo). GitHub cuma bisa nampilin satu README di halaman awal, jadi tombol bahasa di atas
+disengaja seperti ini: link ke Indonesia buka file ini dari baris pertama (`#top`), dan link
+balik ke English nunjuk ke root repo - halaman yang nampilin file English-nya. Prompt
+interaktif di dalam script campur Indonesia/English, ngikutin gaya penulis aslinya; belum ada
+language switch runtime.
 
 ## Alternatif resmi dari jcode
 

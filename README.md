@@ -1,6 +1,6 @@
 # J-Code Provider Manager
 
-**English** | [Bahasa Indonesia](README.id.md)
+**English** | [Bahasa Indonesia](README.id.md#top)
 
 An interactive manager for jcode CLI providers. Universal: runs on **Linux**,
 **macOS**, and **Windows** (PowerShell/CMD) with either Python 3.8+ or plain bash.
@@ -414,9 +414,12 @@ Override the config path (useful for testing): `--config /path/to/config.toml` o
 ## Language note
 
 Documentation ships in two languages: this file (English) and
-[README.id.md](README.id.md) (Indonesian). The interactive prompts and messages inside
-the scripts are Indonesian/English mixed, matching the original author's style; there is
-no runtime language switch yet. Open an issue if you need one.
+[README.id.md](README.id.md#top) (Indonesian). The language switcher at the top is
+deliberate, because GitHub can only render one README on the repository front page: the
+Indonesian link opens that file at its first line (`#top`), and the link back to English
+points at the repository root, which is the page that renders this file. The interactive
+prompts and messages inside the scripts are Indonesian/English mixed, matching the original
+author's style; there is no runtime language switch yet. Open an issue if you need one.
 
 ## Official jcode alternative
 
