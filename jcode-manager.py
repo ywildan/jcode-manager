@@ -285,7 +285,14 @@ class PlatformInfo:
         return self.home / ".jcode" / "config.toml"
 
     def _resolve_app_config_dir(self) -> Path:
-        """Folder app config jcode. Ini lokasi env file provider (api_key_env)."""
+        """Folder app config jcode. Ini lokasi env file provider (api_key_env).
+
+        Override lewat JCODE_MANAGER_APP_CONFIG, biar test bisa hermetik di
+        semua OS (Windows default-nya %APPDATA%, bukan XDG_CONFIG_HOME).
+        """
+        override = os.environ.get("JCODE_MANAGER_APP_CONFIG")
+        if override:
+            return Path(override).expanduser()
         if self.is_windows:
             appdata = os.environ.get("APPDATA")
             if appdata:

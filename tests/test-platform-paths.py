@@ -123,6 +123,13 @@ class WindowsPaths(unittest.TestCase):
         info = manager.PlatformInfo(str(target))
         self.assertEqual(info.config_path, target)
 
+    def test_override_env_dir_menang(self):
+        # Dipakai test cross-OS: di Windows env file default-nya di %APPDATA%,
+        # tapi override ini bikin test hermetik di semua OS.
+        target = self.root / "tmp" / "jcode"
+        with mock.patch.dict(os.environ, {"JCODE_MANAGER_APP_CONFIG": str(target)}, clear=False):
+            self.assertEqual(manager.PlatformInfo().app_config_dir, target)
+
 
 class MacPaths(unittest.TestCase):
     """Simulasi macOS: sys.platform == 'darwin'."""
@@ -190,6 +197,15 @@ class LinuxEnv(unittest.TestCase):
         xdg = Path(self.tmp.name) / "xdg"
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(xdg)}, clear=False):
             self.assertEqual(manager.PlatformInfo().app_config_dir, xdg / "jcode")
+
+    def test_override_env_dir_menang(self):
+        target = Path(self.tmp.name) / "appconf"
+        env = {
+            "JCODE_MANAGER_APP_CONFIG": str(target),
+            "XDG_CONFIG_HOME": str(Path(self.tmp.name) / "xdg"),
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            self.assertEqual(manager.PlatformInfo().app_config_dir, target)
 
 
 class EnvNames(unittest.TestCase):

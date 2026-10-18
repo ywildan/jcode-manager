@@ -28,17 +28,44 @@ FAIL=0
 pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n' "$1"; }
 
-if ! command -v bwrap >/dev/null 2>&1; then
-    echo "SKIP: bubblewrap (bwrap) nggak ada, test ini butuh sandbox."
+# Di CI, "skip" nggak boleh lolos diam-diam: JCM_REQUIRE_SANDBOX=1 bikin
+# dependency yang kurang jadi kegagalan, bukan exit 0.
+skip_or_fail() { # <alasan>
+    if [ "${JCM_REQUIRE_SANDBOX:-0}" = "1" ]; then
+        echo "GAGAL: $1"
+        echo "      (JCM_REQUIRE_SANDBOX=1, jadi skip dianggap gagal)"
+        exit 1
+    fi
+    echo "SKIP: $1"
     exit 0
+}
+
+if ! command -v bwrap >/dev/null 2>&1; then
+    skip_or_fail "bubblewrap (bwrap) nggak ada, test ini butuh sandbox."
 fi
 
 JCODE_BIN="$(command -v jcode || true)"
 if [ -z "$JCODE_BIN" ]; then
-    echo "SKIP: binary jcode nggak ketemu di PATH."
-    exit 0
+    skip_or_fail "binary jcode nggak ketemu di PATH."
 fi
-JCODE_DIR="$(cd "$(dirname "$(readlink -f "$JCODE_BIN")")" && pwd)"
+
+resolve_path() { # portabel: readlink -f nggak ada di macOS lama
+    if readlink -f "$1" >/dev/null 2>&1; then
+        readlink -f "$1"
+    else
+        (cd "$(dirname "$1")" && printf '%s/%s' "$PWD" "$(basename "$1")")
+    fi
+}
+
+file_mode() { # portabel: GNU stat (-c) vs BSD stat (-f)
+    if stat -c '%a' "$1" >/dev/null 2>&1; then
+        stat -c '%a' "$1"
+    else
+        stat -f '%Lp' "$1"
+    fi
+}
+
+JCODE_DIR="$(cd "$(dirname "$(resolve_path "$JCODE_BIN")")" && pwd)"
 
 # Sandbox dir HARUS di luar HOME, karena HOME-nya kita bind-mount.
 ISO="${ISO_DIR:-/var/tmp/jcm-iso-verify}"
@@ -147,7 +174,7 @@ if [ -f "$ISO/xdg/jcode/provider-mockenv.env" ]; then
 else
     fail "env file privat kebikin"
 fi
-if [ "$(stat -c '%a' "$ISO/xdg/jcode/provider-mockenv.env" 2>/dev/null)" = "600" ]; then
+if [ "$(file_mode "$ISO/xdg/jcode/provider-mockenv.env")" = "600" ]; then
     pass "env file mode 600"
 else
     fail "env file mode 600"

@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JCODE_NO_TELEMETRY: "1"
+
+jobs:
+  # Klaim "universal: Linux/macOS/Windows" diuji beneran di ketiga OS-nya.
+  suite:
+    name: suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Lingkungan (OS, bash, python)
+        run: |
+          uname -a || true
+          bash --version | head -1
+          python --version
+
+      - name: Syntax check bash
+        run: |
+          for f in jcode-manager.sh install.sh create-shortcut.sh tests/*.sh; do
+            bash -n "$f"
+            echo "ok  $f"
+          done
+
+      - name: Syntax Python 3.8 + tes deteksi OS/path
+        run: |
+          python -c "import ast, sys; ast.parse(open(sys.argv[1]).read(), feature_version=(3, 8)); print('python 3.8 syntax ok')" jcode-manager.py
+          python tests/test-platform-paths.py
+
+      - name: Smoke test engine Python
+        env:
+          PYTHON: python
+        run: bash tests/smoke-test.sh
+
+      - name: Smoke test engine Bash (fallback tanpa Python)
+        env:
+          PYTHON: python
+        run: bash tests/smoke-test-fallback.sh
+
+      - name: install.sh (cek dependency doang, --no-link)
+        run: bash install.sh --no-link
+
+  # Bukti paling kuat: config yang dibikin manager dibaca sama binary jcode asli.
+  acceptance:
+    name: acceptance pakai jcode asli (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pasang sandbox (bubblewrap)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          # Ubuntu 24.04 nge-restrict unprivileged user namespace via AppArmor,
+          # dan bwrap butuh itu.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Ambil binary jcode (release resmi)
+        run: |
+          curl -fsSL -o /tmp/jcode.tar.gz \
+            https://github.com/1jehuang/jcode/releases/latest/download/jcode-linux-x86_64.tar.gz
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf /tmp/jcode.tar.gz -C "$HOME/.local/bin"
+          cp "$HOME/.local/bin/jcode-linux-x86_64" "$HOME/.local/bin/jcode"
+          chmod +x "$HOME/.local/bin/jcode" "$HOME/.local/bin/jcode-linux-x86_64.bin"
+          "$HOME/.local/bin/jcode" --version
+
+      - name: Acceptance test (jcode baca config hasil manager)
+        env:
+          JCM_REQUIRE_SANDBOX: "1"
+        run: bash tests/verify-with-jcode.sh

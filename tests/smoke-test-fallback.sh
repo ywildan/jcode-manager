@@ -13,16 +13,30 @@ MANAGER="$HERE/../jcode-manager.sh"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/jcm-bash-test.XXXXXX")"
 export XDG_CONFIG_HOME="$WORK/xdg"
+export JCODE_MANAGER_APP_CONFIG="$XDG_CONFIG_HOME/jcode"  # sama di semua OS
+# buat cek TOML/JSON doang; engine yang dites tetap engine Bash
+PY="${PYTHON:-python3}"
 export JCODE_MANAGER_ENGINE=bash
 CONFIG="$WORK/config.toml"
 PASS=0
 FAIL=0
+SKIP=0
 
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
 pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n' "$1"; }
+skip() { SKIP=$((SKIP + 1)); printf '  skip %s\n' "$1"; }
+
+is_windows() { case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; *) return 1 ;; esac; }
+file_mode() { # portabel: GNU stat (-c) vs BSD stat (-f)
+    if stat -c '%a' "$1" >/dev/null 2>&1; then
+        stat -c '%a' "$1"
+    else
+        stat -f '%Lp' "$1"
+    fi
+}
 check() {
     local label="$1"; shift
     if "$@" >/dev/null 2>&1; then pass "$label"; else fail "$label"; fi
@@ -54,7 +68,7 @@ TOML
 }
 
 run() { bash "$MANAGER" --config "$CONFIG" --no-color "$@"; }
-toml_ok() { python3 -c "import tomllib; tomllib.load(open('$CONFIG','rb'))"; }
+toml_ok() { "$PY" -c "import sys, tomllib; tomllib.load(open(sys.argv[1],'rb'))" "$CONFIG"; }
 
 mkdir -p "$XDG_CONFIG_HOME/jcode"
 printf 'JCODE_PROVIDER_LEGACYGW_API_KEY=sk-envfilerouter-abcdef123456\n' >"$XDG_CONFIG_HOME/jcode/provider-legacygw.env"
@@ -94,7 +108,7 @@ check_not "key mentah nggak muncul" grep -q 'sk-1234567890abcdef' "$WORK/list.tx
 check "key dari env file dibaca" contains "$WORK/list.txt" 'provider-legacygw.env'
 check_not "key env file mentah nggak muncul" grep -q 'sk-envfilerouter-abcdef123456' "$WORK/list.txt"
 run --list --json >"$WORK/list.json" 2>/dev/null
-check "list --json valid" python3 -c "import json; json.load(open('$WORK/list.json'))"
+check "list --json valid" "$PY" -c "import json, sys; json.load(open(sys.argv[1]))" "$WORK/list.json"
 check "json punya field name" contains "$WORK/list.json" '"name": "alpha"'
 
 echo "-- edit --"
@@ -167,11 +181,16 @@ if command -v python3 >/dev/null 2>&1; then
         pass "mode auto delegasi ke Python"
     fi
     # Lewat symlink (kayak di PATH) folder script harus tetap ketemu.
-    ln -sfn "$MANAGER" "$WORK/bin/jcode-manager"
-    if JCODE_MANAGER_ENGINE=auto "$WORK/bin/jcode-manager" --version 2>&1 | grep -q 'bash engine'; then
-        fail "lewat symlink tetap delegasi ke Python"
+    # Windows dilewat: `ln -s` di MSYS default-nya bikin copy, bukan symlink.
+    if is_windows; then
+        skip "launcher lewat symlink (Windows: ln -s bikin copy)"
     else
-        pass "lewat symlink tetap delegasi ke Python"
+        ln -sfn "$MANAGER" "$WORK/bin/jcode-manager"
+        if JCODE_MANAGER_ENGINE=auto "$WORK/bin/jcode-manager" --version 2>&1 | grep -q 'bash engine'; then
+            fail "lewat symlink tetap delegasi ke Python"
+        else
+            pass "lewat symlink tetap delegasi ke Python"
+        fi
     fi
     # Python dipaksa nggak ada -> harus jatuh ke engine Bash
     mkdir -p "$WORK/shadow"
@@ -187,5 +206,5 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 
 echo
-echo "== hasil: $PASS ok, $FAIL fail =="
+echo "== hasil: $PASS ok, $FAIL fail, $SKIP skip =="
 [ "$FAIL" -eq 0 ]
