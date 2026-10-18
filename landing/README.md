@@ -37,6 +37,36 @@ The provider studio previews a `[providers.<name>]` section and the matching
 launch command as you type. It writes nothing, stores nothing and never asks for
 an API key. Nothing on the page is submitted anywhere.
 
+## Verification
+
+Checked against the production build served over HTTP, with real input rather
+than synthetic events:
+
+- `pnpm typecheck` and `pnpm build` pass. The built page is exercised at 1920,
+  1600, 1440, 1425, 1401, 1300, 1180, 834, 390, 360 and 320 wide: no horizontal
+  overflow, no control under 44 pixels, and the projection nav appears only where
+  it has a measured gutter.
+- Mouse clicks drive the plate map, the plate stops, the FAQ and the copy
+  controls, and the clipboard is read back and matches the command on screen.
+  Keyboard-only operation works end to end (Tab, Enter, Escape, focus stays
+  inside the open plate map and returns to its button). Touch taps and swipes
+  work on an emulated 390x844 phone. A full scroll-through produces no console
+  errors, no exceptions and no failed requests.
+- Rendered contrast is at least 4.5:1 on every text surface, and the page stays
+  inside a channel spread of 7: neutral, apart from the deliberate warmth of the
+  light whites.
+- `NEXT_PUBLIC_SITE_URL` reaches the canonical link, `og:url`, `og:image`,
+  `robots.txt` and `sitemap.xml` in the built output.
+
+Not verified here, and worth knowing before you rely on it:
+
+- The WebGL deck ran on software rendering (SwiftShader), because the build
+  environment has no GPU. Frame rate on real hardware is unmeasured.
+- No live deployment: `vercel.json` and the Vercel preset are untested against a
+  real deploy, and no CDN or caching behaviour has been observed.
+- Touch is emulated through Chromium, not a real device, and no screen reader or
+  other assistive technology has been run against the page.
+
 This is a creative demonstration. It reflects the project README, and it makes
 no claim about live provider availability, pricing or bookings.
 
