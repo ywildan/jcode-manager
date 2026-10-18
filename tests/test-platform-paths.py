@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """Test deteksi OS & path J-Code Provider Manager.
 
-Linux udah dites beneran lewat smoke-test.sh. File ini nutup bagian yang nggak
-mungkin dites langsung di mesin Linux: cabang Windows dan macOS.
+Dua lapis:
+  1. Simulasi cabang Windows & macOS (os.name / sys.platform / platform.system
+     dipatch, plus env var khas tiap OS), jadi jalan di OS apa pun.
+  2. Cabang Linux/WSL diuji dari host yang beneran Linux (di CI: ubuntu-latest),
+     karena asersinya soal platform host, bukan simulasi.
 
-Caranya: os.name / sys.platform / platform.system dipatch, plus env var khas
-Windows (USERPROFILE, APPDATA, LOCALAPPDATA) di-set ke folder temp, terus dicek
-path yang dihasilkan PlatformInfo.
-
-BATASAN yang perlu kamu tau: pathlib di Linux selalu PosixPath, jadi yang
-diverifikasi di sini adalah STRUKTUR path dan NAMA ENV VAR yang dipakai
-(mis. USERPROFILE vs HOME), bukan rendering backslash khas Windows. Itu
-diverifikasi pas jalan di Windows beneran.
+BATASAN yang perlu kamu tau: pathlib milih PosixPath vs WindowsPath dari os.name
+asli, jadi yang diverifikasi di sini adalah STRUKTUR path dan NAMA ENV VAR yang
+dipakai (mis. USERPROFILE vs HOME), bukan rendering backslash khas Windows. Itu
+diverifikasi pas jalan di Windows beneran (job CI windows-latest).
 
     python3 tests/test-platform-paths.py
 """
@@ -132,7 +131,7 @@ class WindowsPaths(unittest.TestCase):
 
 
 class MacPaths(unittest.TestCase):
-    """Simulasi macOS: sys.platform == 'darwin'."""
+    """Simulasi macOS: sys.platform == 'darwin' (host apa pun)."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -140,6 +139,12 @@ class MacPaths(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.home = self.root / "Users" / "budi"
         self.home.mkdir(parents=True, exist_ok=True)
+
+        # os.name ikut dipalsuin jadi posix: di host Windows nilainya 'nt',
+        # dan kalau dibiarin cabang Windows yang kepakai, bukan cabang macOS.
+        os_patcher = mock.patch.object(manager, "os", OsProxy(os, "posix"))
+        os_patcher.start()
+        self.addCleanup(os_patcher.stop)
 
         for target, name, value in (
             (manager.sys, "platform", "darwin"),
@@ -172,6 +177,10 @@ class MacPaths(unittest.TestCase):
         self.assertFalse(manager.PlatformInfo().is_linux)
 
 
+HOST_IS_LINUX = sys.platform.startswith("linux")
+
+
+@unittest.skipUnless(HOST_IS_LINUX, "asersinya soal platform host (Linux) - dijalankan di job CI ubuntu")
 class LinuxEnv(unittest.TestCase):
     """Linux/WSL: yang dites di CI/mesin nyata."""
 
