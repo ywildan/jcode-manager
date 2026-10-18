@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 MANAGER="$HERE/../jcode-manager.py"
 PY="${PYTHON:-python3}"
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/jcm-test.XXXXXX")"
+WORK="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/jcm-test.XXXXXX")" && pwd)"
 export XDG_CONFIG_HOME="$WORK/xdg"   # env file provider diarahkan ke temp
 # Env var nggak ikut dikonversi otomatis oleh Git Bash/MSYS (beda dari argumen),
 # jadi di Windows dikasih bentuk native-nya biar Python nunjuk folder yang sama.
@@ -154,7 +154,17 @@ fixture
 echo "-- basic --"
 check "--info jalan" run --info
 run --info >"$WORK/info.txt" 2>&1
-check "info nyebut path config" contains "$WORK/info.txt" "$CONFIG"
+# Path yang dicetak engine bisa beda bentuk dari $CONFIG: pathlib ngerapiin slash
+# (di macOS TMPDIR diakhiri '/'), dan Git Bash/MSYS nukar path POSIX jadi native
+# pas argumen nyampe ke python. Jadi pembandingnya dibikin dengan cara yang sama,
+# terus dicek sebagai fixed string (backslash Windows bukan escape regex).
+CONFIG_PRINTED="$("$PY" -c "import sys; from pathlib import Path; print(Path(sys.argv[1]).expanduser())" "$CONFIG" 2>/dev/null || true)"
+[ -n "$CONFIG_PRINTED" ] || CONFIG_PRINTED="$CONFIG"
+if grep -qF -- "$CONFIG_PRINTED" "$WORK/info.txt"; then
+    pass "info nyebut path config"
+else
+    fail "info nyebut path config (nyari $CONFIG_PRINTED)"
+fi
 
 echo "-- add --"
 check "add provider baru" run --add alpha --base-url https://api.example.com/v1 \

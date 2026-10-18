@@ -92,10 +92,28 @@ echo
 
 "$PY" "$HERE/mock-openai-server.py" "$PORT" "$MOCK_LOG" >"$MOCK_OUT" 2>&1 &
 MOCK_PID=$!
-sleep 1
 
-if ! curl -s -m 3 "http://127.0.0.1:$PORT/v1/models" | grep -q mock-model; then
-    echo "GAGAL: mock server nggak jalan di port $PORT (lihat $MOCK_OUT)"
+# Tunggu mock server siap (jangan cuma sleep sekali, runner bisa lambat start).
+MOCK_OK=0
+i=0
+while [ "$i" -lt 20 ]; do
+    if curl -s -m 2 "http://127.0.0.1:$PORT/v1/models" 2>/dev/null | grep -q mock-model; then
+        MOCK_OK=1
+        break
+    fi
+    kill -0 "$MOCK_PID" 2>/dev/null || break
+    i=$((i + 1))
+    sleep 0.5
+done
+
+if [ "$MOCK_OK" != "1" ]; then
+    echo "GAGAL: mock server nggak jalan di port $PORT"
+    echo "  python : $("$PY" --version 2>&1 || echo 'nggak bisa dipanggil')"
+    echo "  curl   : $(command -v curl || echo 'nggak ada')"
+    echo "  --- mock.out ---"
+    sed -n '1,20p' "$MOCK_OUT" 2>/dev/null || true
+    echo "  --- mock.log ---"
+    sed -n '1,20p' "$MOCK_LOG" 2>/dev/null || true
     exit 1
 fi
 pass "mock server jalan di port $PORT"

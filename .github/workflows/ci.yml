@@ -70,6 +70,8 @@ jobs:
   acceptance:
     name: acceptance pakai jcode asli (ubuntu)
     runs-on: ubuntu-latest
+    env:
+      PYTHON: python
     steps:
       - uses: actions/checkout@v4
 
