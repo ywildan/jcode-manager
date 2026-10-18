@@ -1,8 +1,9 @@
-# Jcode Manager
+# Jcode Manager landing
 
-The landing page for [Jcode Manager](../README.md), an interactive manager for
-jcode CLI providers. A black control deck in black, white and light white:
-monumental Space Grotesk type, rounded instruments, hairline rules and a
+The landing page for
+[Jcode Manager](https://github.com/ywildan/jcode-manager), an interactive
+manager for jcode CLI providers. A black control deck in black, white and light
+white: monumental Space Grotesk type, rounded instruments, hairline rules and a
 continuous Three.js constellation of nine provider nodes.
 
 Part of [LN's landing-page collection](https://github.com/ln-dev7/landing-pages);
@@ -19,7 +20,7 @@ pnpm typecheck
 pnpm build
 ```
 
-Deploy with the Next.js preset and `landing` as the root directory. Set
+Deploy with the Next.js preset from the repository root. Set
 `NEXT_PUBLIC_SITE_URL` to the deployment origin; it defaults to
 `https://jcode-manager.vercel.app`.
 
@@ -100,4 +101,4 @@ it requires no downloaded models, remote textures or external image services.
 Space Grotesk and Geist Mono are hosted locally with their SIL Open Font License
 files in `app/fonts/`.
 
-Developed by [LN](https://lndev.me). [MIT license](../LICENSE).
+Developed by [LN](https://lndev.me). [MIT license](LICENSE).
