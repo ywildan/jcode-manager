@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 APP_NAME = "J-Code Provider Manager"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 BACKUP_STAMP_FMT = "%Y%m%d%H%M%S"
 
 # Cuma tiga field ini yang perlu buat provider OpenAI-compatible.

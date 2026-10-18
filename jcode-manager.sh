@@ -66,7 +66,7 @@ fi
 # ---------------------------------------------------------------------------
 
 APP_NAME="J-Code Provider Manager"
-VERSION="1.0.0 (bash engine)"
+VERSION="1.1.0 (bash engine)"
 
 if [ "${JCODE_MANAGER_ENGINE:-auto}" = "auto" ]; then
     echo "Catatan: Python nggak ketemu, jalan pakai engine Bash. Fitur inti tetap jalan." >&2
