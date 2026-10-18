@@ -61,10 +61,12 @@ needs only `bash`, `awk`, `sed`, `grep`, `cut`, and `date`.
 | `JCODE_MANAGER_ENGINE=bash` | force the Bash engine |
 | `JCODE_MANAGER_ENGINE=python` | force the Python engine, errors if missing |
 
-The Bash engine covers menu 1-9: add/list/edit/delete/quick start/generate/launch/
-restore, backups, key masking, and the same config format. The differences: the Bash
-engine cannot create new providers with `--key-store envfile` (it can still read and
-mask keys from existing env files), and its `--list --json` prints a subset of fields.
+The Bash engine covers menu 1-10: add/list/edit/delete/quick start/generate/launch/
+restore/models, backups, key masking, and the same config format. The differences: the
+Bash engine cannot create new providers with `--key-store envfile` (it can still read
+and mask keys from existing env files), its `--list --json` prints a subset of fields,
+and its model management rejects model ids containing a double quote (the Python engine
+handles those).
 
 Unless stated otherwise, this document describes the Python engine.
 
@@ -81,6 +83,7 @@ Unless stated otherwise, this document describes the Python engine.
 | 7 | **Launch Provider** - runs `server stop --force` first, then starts jcode on that profile |
 | 8 | **Info & Doctor** - OS, config path, env dir, binary location, provider/backup counts |
 | 9 | **Restore from Backup** - roll the config back to an earlier backup |
+| 10 | **Manage Models** - add/remove extra models for one provider (multi-model picker in jcode) |
 
 ## Usage
 
@@ -193,6 +196,12 @@ python3 jcode-manager.py --edit mygw --model gpt-4o-mini
 python3 jcode-manager.py --edit mygw --new-name gateway
 python3 jcode-manager.py --delete mygw --yes
 
+# more than one model on the same provider
+python3 jcode-manager.py --models mygw
+python3 jcode-manager.py --add-model mygw=gpt-4o --add-model mygw=o3-mini
+python3 jcode-manager.py --remove-model mygw=o3-mini
+python3 jcode-manager.py --set-models mygw=gpt-4o,gpt-4o-mini --model gpt-4o-mini
+
 python3 jcode-manager.py --quick groq --api-key gsk_xxx
 python3 jcode-manager.py --generate mygw
 python3 jcode-manager.py --launch mygw --yes
@@ -223,13 +232,42 @@ Three things worth knowing:
 1. The key is **`default_model`**, not `model`. With `model`, jcode silently ignores it
    and falls back to the catalog default (not an error, but the wrong model).
 2. **Never** write `models = [...]`. That shape expects a `NamedProviderModelConfig`
-   struct and produces a TOML parse error. `default_model` is enough.
+   struct and produces a TOML parse error. `default_model` is enough for one model;
+   for several, use `[[providers.<name>.models]]` sub-tables (below).
 3. The `api_key` field is **required**. Remove it and jcode fails with
    `Error: inline api_key not found in environment`. For a local server without auth,
    write `api_key = ""` (empty string, do not omit it).
 
 Everything else in your file (comments, key order, `[[providers.x.models]]`) is
 preserved byte for byte. Only the provider section being changed is rewritten.
+
+### More than one model per provider
+
+One profile can expose several models: add one `[[providers.<name>.models]]` sub-table
+per model, and `default_model` decides which one is active when jcode starts with that
+profile. In jcode you switch between them with Ctrl+Tab (or `/model`):
+
+```toml
+[providers.mygw]
+base_url = "https://api.example.com/v1"
+api_key = "sk-xxx"
+default_model = "deepseek-v4-flash"
+
+[[providers.mygw.models]]
+id = "deepseek-v4-flash"
+
+[[providers.mygw.models]]
+id = "gpt-6-luna"
+```
+
+This is verified against the real binary: every `id` shows up in
+`jcode model list` for that profile, and `jcode --model <id>` really sends that model.
+
+Menu **10 (Manage Models)** does it interactively, or use the CLI flags
+`--models`, `--add-model`, `--remove-model`, and `--set-models`. When the manager
+rewrites the list it reuses the existing sub-table blocks verbatim, so comments and
+extra fields inside them survive; only brand-new entries are written as a minimal
+`id` block.
 
 ### API key storage modes
 
@@ -284,24 +322,27 @@ Three layers, from cheapest to strictest:
 
 ```bash
 python3 tests/test-platform-paths.py   # 18 tests: per-platform OS & path detection
-bash tests/smoke-test.sh               # 64 tests, Python engine
-bash tests/smoke-test-fallback.sh      # 57 tests, Bash engine
-bash tests/verify-with-jcode.sh        # 20 tests against the real jcode binary (sandbox)
+bash tests/smoke-test.sh               # 88 tests, Python engine
+bash tests/smoke-test-fallback.sh      # 78 tests, Bash engine
+bash tests/verify-with-jcode.sh        # 23 tests against the real jcode binary (sandbox)
 ```
 
 - **test-platform-paths.py** - simulates the Windows branch (`os.name == 'nt'`, with
   `USERPROFILE`/`APPDATA`/`LOCALAPPDATA`) and the macOS branch
   (`sys.platform == 'darwin'`), plus Linux/WSL and the provider env var names.
 - **smoke-test.sh** - Python engine: add/list/edit/delete/quick/generate/restore/menu,
-  key masking, config integrity (comments and other providers untouched), the envfile
-  mode, the `stop daemon` ordering in the launch flow (via a stub `jcode`, so the real
-  daemon is never touched), Python 3.8 syntax compatibility, and engine selection.
+  multi-model management (menu 10 and the CLI flags), key masking, config integrity
+  (comments and other providers untouched), the envfile mode, the `stop daemon`
+  ordering in the launch flow (via a stub `jcode`, so the real daemon is never touched),
+  Python 3.8 syntax compatibility, and engine selection.
 - **smoke-test-fallback.sh** - the same for the Bash engine, plus delegation to Python
   (including through a symlink) and the automatic fallback when Python is missing.
 - **verify-with-jcode.sh** - runs the real jcode binary inside a bubblewrap sandbox with
   a separate HOME and a separate daemon socket, proving:
   - `jcode provider current` accepts configs written by both engines
   - the profile's `default_model` is really used
+  - every extra model added by the manager shows up in `jcode model list` for that
+    profile, and selecting one sends it to the endpoint
   - a chat works (the mock server returns `PONG`)
   - the API key is actually sent as `Authorization: Bearer ...`
   - the `envfile` mode works end to end

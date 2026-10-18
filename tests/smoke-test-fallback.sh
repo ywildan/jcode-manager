@@ -153,6 +153,33 @@ check "launch stop daemon dulu" grep -q '^server stop --force$' "$JCM_STUB_LOG"
 check "launch pakai flag provider + profile" grep -q 'provider openai-compatible --provider-profile beta' "$JCM_STUB_LOG"
 check "urutan stop sebelum start" test "$(head -1 "$JCM_STUB_LOG")" = "server stop --force"
 
+echo "-- multi-model (satu provider banyak model) --"
+check "add model tambahan" run --add-model legacygw=extra-1
+check "sub-table model baru kebikin" contains "$CONFIG" 'id = "extra-1"'
+check "add model tambahan kedua" run --add-model legacygw=extra-2
+check_not "add model duplikat ditolak" run --add-model legacygw=extra-2
+check_not "add model tanpa = ditolak" run --add-model legacygw
+check "sub-table model lama tetap ada" contains "$CONFIG" 'id = "legacy-model-1"'
+check "config valid setelah add model" toml_ok
+run --models legacygw >"$WORK/models.txt" 2>&1
+check "models nampilin default" contains "$WORK/models.txt" 'legacy-model-1'
+check "models nampilin model tambahan" contains "$WORK/models.txt" 'extra-2'
+run --models legacygw --json >"$WORK/models.json" 2>/dev/null
+check "models --json valid" "$PY" -c "import json, sys; json.load(open(sys.argv[1]))" "$WORK/models.json"
+check "models --json punya daftar models" contains "$WORK/models.json" '"extra-1"'
+check "set-models ganti seluruh daftar" run --set-models 'legacygw=zz9,yy8' --model zz9
+check_not "set-models buang model lama" grep -q 'id = "extra-1"' "$CONFIG"
+check "set-models update default_model" contains "$CONFIG" 'default_model = "zz9"'
+check "remove-model hapus satu" run --remove-model legacygw=yy8
+check_not "remove-model beneran ngilangin" grep -q 'id = "yy8"' "$CONFIG"
+check_not "remove-model yang nggak ada = error" run --remove-model legacygw=hantu
+check "config masih valid setelah multi-model" toml_ok
+check "komentar masih utuh setelah multi-model" contains "$CONFIG" '# komentar yang harus tetap ada'
+
+printf '10\nlegacygw\n1\nbash-extra\n\n0\n' | run >"$WORK/menu10.txt" 2>&1
+check "menu 10 nambah model" contains "$CONFIG" 'id = "bash-extra"'
+check "config valid setelah menu 10" toml_ok
+
 echo "-- delete --"
 check "delete groq" run --delete groq --yes
 check_not "section groq hilang" grep -q '\[providers.groq\]' "$CONFIG"

@@ -16,6 +16,7 @@ Menu:
   7) Launch Provider       - stop daemon dulu, terus start jcode pakai profile
   8) Info / Doctor         - deteksi OS, path config, lokasi binary jcode
   9) Restore Backup        - balikin config dari backup lama
+ 10) Manage Models         - tambah/hapus model lain buat satu provider
 
 Universal: Linux, macOS, Windows (PowerShell/CMD). Butuh Python 3.8+.
 
@@ -402,6 +403,26 @@ def validate_model(model: str) -> Optional[str]:
     return None
 
 
+def normalize_model_ids(raw: Sequence[str]) -> List[str]:
+    """Rapihin daftar model: buang yang kosong dan duplikat, urutan dijaga."""
+    ids: List[str] = []
+    for item in raw:
+        mid = (item or "").strip()
+        if mid and mid not in ids:
+            ids.append(mid)
+    return ids
+
+
+def validate_model_ids(ids: Sequence[str]) -> Optional[str]:
+    for mid in ids:
+        problem = validate_model(mid)
+        if problem:
+            return problem
+        if "," in mid:
+            return "Nama model nggak boleh ada koma (koma dipakai buat misahin daftar)."
+    return None
+
+
 # ---------------------------------------------------------------------------
 # File config: baca, backup, tulis atomic
 # ---------------------------------------------------------------------------
@@ -622,11 +643,18 @@ def parse_value(raw: str) -> str:
 class Segment:
     """Satu potongan config: preamble, satu provider, atau satu sub-table."""
 
-    __slots__ = ("kind", "name", "lines")
+    __slots__ = ("kind", "name", "sub", "lines")
 
-    def __init__(self, kind: str, name: Optional[str] = None, lines: Optional[List[str]] = None):
+    def __init__(
+        self,
+        kind: str,
+        name: Optional[str] = None,
+        lines: Optional[List[str]] = None,
+        sub: Optional[str] = None,
+    ):
         self.kind = kind
         self.name = name
+        self.sub = sub
         self.lines = list(lines) if lines else []
 
     def text(self) -> str:
@@ -636,11 +664,33 @@ class Segment:
 class ProviderEntry:
     """Satu provider hasil parse, plus nilai field yang udah dibersihin."""
 
-    def __init__(self, name: str, fields: Dict[str, str], order: List[str], extra_models: int = 0):
+    def __init__(
+        self,
+        name: str,
+        fields: Dict[str, str],
+        order: List[str],
+        model_ids: Optional[List[str]] = None,
+    ):
         self.name = name
         self.fields = fields
         self.order = order
-        self.extra_models = extra_models
+        self.model_ids: List[str] = list(model_ids or [])
+
+    @property
+    def extra_models(self) -> int:
+        """Jumlah sub-table [[providers.x.models]] yang kedaftar."""
+        return len(self.model_ids)
+
+    @property
+    def all_models(self) -> List[str]:
+        """default_model dulu, terus model tambahan, tanpa duplikat."""
+        ids: List[str] = []
+        if self.model:
+            ids.append(self.model)
+        for mid in self.model_ids:
+            if mid and mid not in ids:
+                ids.append(mid)
+        return ids
 
     @property
     def base_url(self) -> str:
@@ -686,7 +736,14 @@ def split_config(text: str) -> List[Segment]:
     for line in text.splitlines(keepends=True):
         sub = _PROVIDER_SUB_RE.match(line)
         if sub:
-            segments.append(Segment("sub", unquote_key(sub.group("name")), [line]))
+            segments.append(
+                Segment(
+                    "sub",
+                    unquote_key(sub.group("name")),
+                    [line],
+                    unquote_key(sub.group("sub")),
+                )
+            )
             continue
         head = _PROVIDER_HEADER_RE.match(line)
         if head:
@@ -694,6 +751,19 @@ def split_config(text: str) -> List[Segment]:
             continue
         segments[-1].lines.append(line)
     return segments
+
+
+def parse_model_id(segment: Segment) -> str:
+    """Ambil `id = "..."` dari satu sub-table [[providers.x.models]]."""
+    for line in segment.lines[1:]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        m = _KEY_LINE_RE.match(line)
+        if not m or unquote_key(m.group("key")) != "id":
+            continue
+        return parse_value(m.group("value"))
+    return ""
 
 
 def parse_provider_fields(segment: Segment) -> Tuple[Dict[str, str], List[str]]:
@@ -720,13 +790,16 @@ def parse_config(text: str) -> Tuple[List[Segment], List[ProviderEntry]]:
         if seg.kind != "provider" or seg.name is None:
             continue
         fields, order = parse_provider_fields(seg)
-        model_subs = 0
+        model_ids: List[str] = []
         for nxt in segments[idx + 1 :]:
             if nxt.kind == "sub" and nxt.name == seg.name:
-                model_subs += 1
+                if nxt.sub == "models":
+                    mid = parse_model_id(nxt)
+                    if mid:
+                        model_ids.append(mid)
             elif nxt.kind == "provider":
                 break
-        providers.append(ProviderEntry(seg.name, fields, order, model_subs))
+        providers.append(ProviderEntry(seg.name, fields, order, model_ids))
     return segments, providers
 
 
@@ -864,6 +937,69 @@ def build_after_rename(text: str, old_name: str, new_name: str) -> str:
             if m:
                 seg.lines[0] = "[[providers.%s.%s]]\n" % (new_name, m.group("sub"))
     return normalize_text("".join(seg.text() for seg in segments))
+
+
+def render_model_subtable(name: str, model_id: str) -> str:
+    """Satu blok sub-table yang dibaca jcode sebagai model profile ini.
+
+    jcode cuma butuh `id`. Bentuk `models = [...]` beda arti dan bikin parse
+    error, jadi selalu ditulis sebagai [[providers.<name>.models]].
+    """
+    return "[[providers.%s.models]]\nid = %s\n" % (name, toml_quote(model_id))
+
+
+def _minimal_model_block(name: str, model_id: str) -> str:
+    """Blok model baru, tanpa newline di akhir."""
+    return render_model_subtable(name, model_id).rstrip("\n")
+
+
+def build_after_set_models(text: str, name: str, model_ids: Sequence[str]) -> str:
+    """Set ulang daftar [[providers.<name>.models]] dengan spasi ala jcode.
+
+    Blok model yang udah ada dipakai ulang apa adanya, jadi komentar dan field
+    tambahan di dalamnya nggak ilang. Model baru ditulis sebagai blok minimal
+    berisi `id`. Blok yang nggak punya `id` ikut dipertahanin di urutan akhir.
+    """
+    segments = split_config(text)
+    ordered: List[Tuple[str, str]] = []
+    for seg in segments:
+        if seg.kind == "sub" and seg.name == name and seg.sub == "models":
+            ordered.append((parse_model_id(seg), "".join(seg.lines).strip("\n")))
+    kept = [
+        seg
+        for seg in segments
+        if not (seg.kind == "sub" and seg.name == name and seg.sub == "models")
+    ]
+
+    provider_at: Optional[int] = None
+    for idx, seg in enumerate(kept):
+        if seg.kind == "provider" and seg.name == name:
+            provider_at = idx
+            break
+    if provider_at is None:
+        raise ManagerError("Provider '%s' nggak ketemu di config." % name)
+
+    head = "".join(seg.text() for seg in kept[: provider_at + 1]).rstrip("\n")
+    tail = "".join(seg.text() for seg in kept[provider_at + 1 :]).strip("\n")
+
+    blocks: List[str] = []
+    used: List[str] = []
+    for mid in model_ids:
+        if mid in used:
+            continue
+        used.append(mid)
+        reused = next((txt for ident, txt in ordered if ident == mid), None)
+        blocks.append(reused if reused is not None else _minimal_model_block(name, mid))
+    for ident, txt in ordered:
+        if not ident:
+            blocks.append(txt)
+
+    out = head
+    if blocks:
+        out += "\n\n" + "\n\n".join(blocks)
+    if tail:
+        out += "\n\n" + tail
+    return normalize_text(out)
 
 
 # ---------------------------------------------------------------------------
@@ -1153,6 +1289,91 @@ class Manager:
         logs.append("Provider '%s' beres diupdate." % (new_name or name))
         return logs
 
+    def set_models(
+        self,
+        name: str,
+        model_ids: Sequence[str],
+        default: Optional[str] = None,
+    ) -> List[str]:
+        """Ganti seluruh daftar model provider, opsional sekalian set default."""
+        logs: List[str] = []
+        entry = self.find(name)
+        if entry is None:
+            raise ManagerError("Provider '%s' nggak ada di %s." % (name, self.path))
+        ids = normalize_model_ids(model_ids)
+        if not ids:
+            raise ManagerError("Daftar model kosong. Kasih minimal satu nama model.")
+        problem = validate_model_ids(ids)
+        if problem:
+            raise ManagerError(problem)
+        if default:
+            problem = validate_model(default)
+            if problem:
+                raise ManagerError(problem)
+            if default not in ids:
+                ids.insert(0, default)
+        text, _providers = self.load()
+        new_text = build_after_set_models(text, name, ids)
+        target_default = default or entry.model or ids[0]
+        if target_default:
+            new_text = build_after_update(new_text, name, {"default_model": target_default})
+        backup = self.commit(new_text, "set-models")
+        if backup:
+            logs.append("Backup config: %s" % backup.name)
+        logs.append("Daftar model '%s' diset: %s" % (name, ", ".join(ids)))
+        if target_default:
+            logs.append("default_model: %s" % target_default)
+        return logs
+
+    def add_model(self, name: str, model_id: str) -> List[str]:
+        """Tambah satu sub-table [[providers.<name>.models]] ke provider."""
+        logs: List[str] = []
+        entry = self.find(name)
+        if entry is None:
+            raise ManagerError("Provider '%s' nggak ada di %s." % (name, self.path))
+        model_id = (model_id or "").strip()
+        if not model_id:
+            raise ManagerError("Nama model nggak boleh kosong.")
+        problem = validate_model_ids([model_id])
+        if problem:
+            raise ManagerError(problem)
+        if model_id in entry.model_ids:
+            raise ManagerError("Model '%s' udah kedaftar di provider '%s'." % (model_id, name))
+        text, _providers = self.load()
+        new_text = build_after_set_models(text, name, entry.model_ids + [model_id])
+        if not entry.model:
+            new_text = build_after_update(new_text, name, {"default_model": model_id})
+        backup = self.commit(new_text, "add-model")
+        if backup:
+            logs.append("Backup config: %s" % backup.name)
+        logs.append("Model '%s' ditambahin ke provider '%s'." % (model_id, name))
+        if not entry.model:
+            logs.append("default_model diisi '%s' karena sebelumnya belum diset." % model_id)
+        return logs
+
+    def remove_model(self, name: str, model_id: str) -> List[str]:
+        """Hapus satu sub-table [[providers.<name>.models]] dari provider."""
+        logs: List[str] = []
+        entry = self.find(name)
+        if entry is None:
+            raise ManagerError("Provider '%s' nggak ada di %s." % (name, self.path))
+        model_id = (model_id or "").strip()
+        if model_id not in entry.model_ids:
+            raise ManagerError("Model '%s' nggak kedaftar di provider '%s'." % (model_id, name))
+        text, _providers = self.load()
+        remaining = [mid for mid in entry.model_ids if mid != model_id]
+        new_text = build_after_set_models(text, name, remaining)
+        backup = self.commit(new_text, "remove-model")
+        if backup:
+            logs.append("Backup config: %s" % backup.name)
+        logs.append("Model '%s' dihapus dari provider '%s'." % (model_id, name))
+        if entry.model == model_id:
+            logs.append(
+                "Catatan: default_model masih '%s'. Set default baru lewat --edit atau menu 10."
+                % model_id
+            )
+        return logs
+
     def delete(self, name: str) -> List[str]:
         logs: List[str] = []
         entry = self.find(name)
@@ -1203,6 +1424,8 @@ class Manager:
                         "api_key_masked": masked,
                         "key_source": source,
                         "key_state": p.key_state,
+                        "models": list(p.model_ids),
+                        "model_count": len(p.all_models),
                     }
                 )
             return payload
@@ -1224,6 +1447,10 @@ class Manager:
                 % (PAL.gray("model ....."), p.model or PAL.yellow("(belum diset)"))
             )
             lines.append("      %s %s  %s" % (PAL.gray("api_key .."), masked, PAL.gray("<- " + source)))
+            if p.model_ids:
+                lines.append(
+                    "      %s %s" % (PAL.gray("models ...."), PAL.cyan(", ".join(p.model_ids)))
+                )
             notes = []
             if p.model_key_is_wrong:
                 notes.append(PAL.yellow("key `model` nggak dibaca jcode, pakai `default_model`"))
@@ -1233,6 +1460,29 @@ class Manager:
                 notes.append(PAL.gray("%d model tambahan" % p.extra_models))
             for note in notes:
                 lines.append("      %s" % note)
+        return lines
+
+    def render_models(self, name: str, as_json: bool = False):
+        """Tampilkan default_model + daftar model tambahan satu provider."""
+        entry = self.find(name)
+        if entry is None:
+            raise ManagerError("Provider '%s' nggak ada di %s." % (name, self.path))
+        if as_json:
+            return {
+                "name": entry.name,
+                "default_model": entry.model,
+                "models": list(entry.model_ids),
+                "all_models": entry.all_models,
+            }
+        lines = [
+            "%s %s" % (PAL.gray("default ..."), entry.model or PAL.yellow("(belum diset)"))
+        ]
+        if entry.model_ids:
+            for idx, mid in enumerate(entry.model_ids, start=1):
+                mark = PAL.gray(" (= default)") if mid == entry.model else ""
+                lines.append("%s %s%s" % (PAL.gray("%2d." % idx), PAL.cyan(mid), mark))
+        else:
+            lines.append(PAL.gray("(belum ada model tambahan)"))
         return lines
 
     def render_command(self, name: str, model: str = "") -> str:
@@ -1631,6 +1881,70 @@ def menu_restore(manager: "Manager") -> None:
         ok(line)
 
 
+def menu_models(manager: "Manager") -> None:
+    clear_screen()
+    header(
+        "10. Kelola Model Provider",
+        "Satu provider bisa punya banyak model (di jcode: Ctrl+Tab buat pindah)",
+    )
+    say()
+    entry = choose_provider(manager, "Provider yang model-nya mau diatur")
+    if entry is None:
+        return
+    say()
+    say("  %s %s" % (PAL.gray("default ..."), PAL.green(entry.model or "(belum diset)")))
+    if entry.model_ids:
+        for idx, mid in enumerate(entry.model_ids, start=1):
+            mark = PAL.gray(" (= default)") if mid == entry.model else ""
+            say("  %s %s%s" % (PAL.gray("%2d." % idx), PAL.cyan(mid), mark))
+    else:
+        say(PAL.gray("  (belum ada model tambahan)"))
+    say()
+    say(PAL.gray("  1) Tambah model   2) Hapus model   3) Jadikan default   4) Ganti semua daftar"))
+    action = ask("Pilih aksi (kosong = batal)")
+    if action == "1":
+        model_id = ask("Nama model baru (contoh: gpt-4o)")
+        if not model_id:
+            warn("Dibatalin.")
+            return
+        report(manager, entry.name, manager.add_model(entry.name, model_id))
+        return
+    if action == "2":
+        if not entry.model_ids:
+            warn("Belum ada model tambahan buat dihapus.")
+            return
+        raw = ask("Model yang mau dihapus (nomor atau nama)")
+        if not raw:
+            warn("Dibatalin.")
+            return
+        model_id = raw
+        if raw.isdigit() and 1 <= int(raw) <= len(entry.model_ids):
+            model_id = entry.model_ids[int(raw) - 1]
+        report(manager, entry.name, manager.remove_model(entry.name, model_id))
+        return
+    if action == "3":
+        fallback = entry.model or (entry.model_ids[0] if entry.model_ids else "")
+        model_id = ask("Jadikan default model", fallback)
+        if not model_id:
+            warn("Dibatalin.")
+            return
+        report(
+            manager,
+            entry.name,
+            manager.set_models(entry.name, entry.all_models, default=model_id),
+        )
+        return
+    if action == "4":
+        raw = ask("Daftar model lengkap (pisahin pakai koma)", ", ".join(entry.model_ids))
+        if not raw:
+            warn("Dibatalin.")
+            return
+        ids = [part for part in raw.split(",") if part.strip()]
+        report(manager, entry.name, manager.set_models(entry.name, ids, default=entry.model))
+        return
+    warn("Dibatalin.")
+
+
 # ---------------------------------------------------------------------------
 # Menu utama
 # ---------------------------------------------------------------------------
@@ -1645,6 +1959,7 @@ MENU_ITEMS: List[Tuple[str, str, str]] = [
     ("7", "Launch Provider  (stop daemon + start)", "magenta"),
     ("8", "Info & Doctor", "gray"),
     ("9", "Restore dari Backup", "gray"),
+    ("10", "Kelola Model Provider", "green"),
     ("0", "Keluar", "gray"),
 ]
 
@@ -1658,6 +1973,7 @@ MENU_HANDLERS = {
     "7": menu_launch,
     "8": menu_info,
     "9": menu_restore,
+    "10": menu_models,
 }
 
 
@@ -1715,6 +2031,10 @@ EPILOG = """contoh:
   jcode-manager.py --quick groq --api-key gsk_xxx
   jcode-manager.py --generate mygw
   jcode-manager.py --launch mygw --yes
+  jcode-manager.py --models mygw
+  jcode-manager.py --add-model mygw=gpt-4o --add-model mygw=o3-mini
+  jcode-manager.py --remove-model mygw=o3-mini
+  jcode-manager.py --set-models mygw=gpt-4o,gpt-4o-mini --model gpt-4o-mini
   jcode-manager.py --info
 
 mode key store:
@@ -1748,6 +2068,26 @@ def build_parser() -> argparse.ArgumentParser:
     actions.add_argument("--quick", metavar="PRESET", help="quick start: openai | anthropic | groq | openrouter")
     actions.add_argument("--generate", metavar="NAMA", help="print command jcode buat provider ini")
     actions.add_argument("--launch", metavar="NAMA", help="stop daemon terus start jcode pakai provider ini")
+    actions.add_argument("--models", metavar="NAMA", help="tampilkan daftar model satu provider")
+    actions.add_argument(
+        "--add-model",
+        metavar="NAMA=MODEL",
+        action="append",
+        default=[],
+        help="tambah satu model ke provider (boleh diulang)",
+    )
+    actions.add_argument(
+        "--remove-model",
+        metavar="NAMA=MODEL",
+        action="append",
+        default=[],
+        help="hapus satu model dari provider (boleh diulang)",
+    )
+    actions.add_argument(
+        "--set-models",
+        metavar="NAMA=MODEL1,MODEL2",
+        help="ganti seluruh daftar model provider",
+    )
 
     fields = parser.add_argument_group("field provider")
     fields.add_argument("--base-url", help="base URL provider OpenAI-compatible")
@@ -1762,6 +2102,16 @@ def build_parser() -> argparse.ArgumentParser:
     fields.add_argument("--force", action="store_true", help="timpa provider yang udah ada")
     actions.add_argument("--restore", metavar="PATH", help="balikin config dari file backup")
     return parser
+
+
+def split_assign(raw: str, flag: str) -> Tuple[str, str]:
+    """Parse bentuk NAMA=NILAI dari argumen CLI model."""
+    name, sep, value = (raw or "").partition("=")
+    name = name.strip()
+    value = value.strip()
+    if not sep or not name or not value:
+        raise ManagerError("%s butuh format NAMA=MODEL, contoh: mygw=gpt-4o." % flag)
+    return name, value
 
 
 def run_cli(args: argparse.Namespace, manager: "Manager") -> int:
@@ -1833,6 +2183,36 @@ def run_cli(args: argparse.Namespace, manager: "Manager") -> int:
 
     if args.generate:
         say(manager.render_command(args.generate, args.model or ""))
+        return 0
+
+    if args.models:
+        data = manager.render_models(args.models, as_json=args.json)
+        if args.json:
+            say(json.dumps(data, indent=2))
+        else:
+            for line in data:
+                say(line)
+        return 0
+
+    if args.set_models:
+        name, value = split_assign(args.set_models, "--set-models")
+        ids = [part for part in value.split(",") if part.strip()]
+        for line in manager.set_models(name, ids, default=args.model or None):
+            ok(line)
+        return 0
+
+    if args.add_model:
+        for raw in args.add_model:
+            name, value = split_assign(raw, "--add-model")
+            for line in manager.add_model(name, value):
+                ok(line)
+        return 0
+
+    if args.remove_model:
+        for raw in args.remove_model:
+            name, value = split_assign(raw, "--remove-model")
+            for line in manager.remove_model(name, value):
+                ok(line)
         return 0
 
     if args.launch:

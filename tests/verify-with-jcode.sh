@@ -179,6 +179,43 @@ else
     sed -n '1,5p' "$MOCK_LOG"
 fi
 
+echo "-- multi-model (satu provider banyak model) --"
+add_models_ok=1
+for m in mock-extra-1 mock-extra-2; do
+    "$PY" "$MANAGER" --config "$ISO/config-inline.toml" --no-color --add-model "mockgw=$m" >/dev/null 2>&1 || add_models_ok=0
+done
+if [ "$add_models_ok" = "1" ]; then
+    pass "manager nambah model tambahan ke provider"
+else
+    fail "manager nambah model tambahan ke provider"
+fi
+
+cp "$ISO/config-inline.toml" "$ISO/home/.jcode/config.toml"
+run_in_sandbox "" --quiet --provider openai-compatible --provider-profile mockgw model list --json \
+    >"$ISO/models.json" 2>&1
+all_models_ok=1
+for m in mock-model mock-extra-1 mock-extra-2; do
+    grep -q "\"$m\"" "$ISO/models.json" || all_models_ok=0
+done
+if [ "$all_models_ok" = "1" ]; then
+    pass "jcode ngenalin semua model provider"
+else
+    fail "jcode ngenalin semua model provider"
+    sed -n '1,10p' "$ISO/models.json"
+fi
+
+# Model tambahan harus beneran kepakai kalau dipilih lewat --model.
+: >"$MOCK_LOG"
+run_in_sandbox "" --no-update --provider openai-compatible --provider-profile mockgw \
+    --model mock-extra-2 run "balas PONG" >"$ISO/run-extra.txt" 2>&1
+if grep -q "model=mock-extra-2" "$MOCK_LOG"; then
+    pass "model tambahan bisa dipakai buat chat"
+else
+    fail "model tambahan bisa dipakai buat chat"
+    sed -n '1,10p' "$ISO/run-extra.txt"
+    sed -n '1,5p' "$MOCK_LOG"
+fi
+
 echo "-- config mode envfile --"
 if XDG_CONFIG_HOME="$ISO/xdg" "$PY" "$MANAGER" --config "$ISO/config-envfile.toml" --no-color --add mockenv \
     --base-url "http://127.0.0.1:$PORT/v1" --api-key sk-envmode-abcdef123456 --model mock-model \

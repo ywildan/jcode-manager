@@ -50,11 +50,12 @@ butuh `bash`, `awk`, `sed`, `grep`, `cut`, dan `date`.
 | `JCODE_MANAGER_ENGINE=bash` | paksa engine Bash |
 | `JCODE_MANAGER_ENGINE=python` | paksa engine Python, error kalau nggak ada |
 
-Engine Bash nggak butuh dependency apa-apa (cuma bash + coreutils/awk): menu 1-9,
-add/list/edit/delete/quick start/generate/launch/restore, backup, masking key, dan
-format config yang sama. Yang beda: engine Bash nggak punya mode `--key-store envfile`
-buat bikin provider baru (tapi tetap bisa baca dan mask key dari env file yang udah ada),
-dan `--list --json` di engine Bash cuma nyetak subset field.
+Engine Bash nggak butuh dependency apa-apa (cuma bash + coreutils/awk): menu 1-10,
+add/list/edit/delete/quick start/generate/launch/restore/models, backup, masking key,
+dan format config yang sama. Yang beda: engine Bash nggak punya mode `--key-store
+envfile` buat bikin provider baru (tapi tetap bisa baca dan mask key dari env file yang
+udah ada), `--list --json` di engine Bash cuma nyetak subset field, dan kelola modelnya
+nolak id model yang ada tanda kutip ganda (engine Python bisa).
 
 Engine Python yang nulis config di dokumen ini, kalau nggak disebut lain.
 
@@ -71,6 +72,7 @@ Engine Python yang nulis config di dokumen ini, kalau nggak disebut lain.
 | 7 | **Launch Provider** - `server stop --force` dulu, baru start pakai profile |
 | 8 | **Info & Doctor** - OS, path config, env dir, lokasi binary, jumlah provider/backup |
 | 9 | **Restore dari Backup** - balikin config dari backup lama |
+| 10 | **Kelola Model** - tambah/hapus model lain buat satu provider (jcode: Ctrl+Tab buat pindah) |
 
 ## Cara Pakai
 
@@ -182,6 +184,12 @@ python3 jcode-manager.py --edit mygw --model gpt-4o-mini
 python3 jcode-manager.py --edit mygw --new-name gateway
 python3 jcode-manager.py --delete mygw --yes
 
+# satu provider banyak model
+python3 jcode-manager.py --models mygw
+python3 jcode-manager.py --add-model mygw=gpt-4o --add-model mygw=o3-mini
+python3 jcode-manager.py --remove-model mygw=o3-mini
+python3 jcode-manager.py --set-models mygw=gpt-4o,gpt-4o-mini --model gpt-4o-mini
+
 python3 jcode-manager.py --quick groq --api-key gsk_xxx
 python3 jcode-manager.py --generate mygw
 python3 jcode-manager.py --launch mygw --yes
@@ -212,13 +220,43 @@ Tiga catatan penting:
 1. Key-nya **`default_model`**, bukan `model`. Kalau pakai `model`, jcode diam-diam
    ngabaikan dan jatuh ke model default katalog (bukan error, tapi salah model).
 2. **Jangan** tulis `models = [...]`. Bentuk itu butuh struct `NamedProviderModelConfig`
-   dan bikin TOML parse error. Cukup `default_model`.
+   dan bikin TOML parse error. Buat satu model, cukup `default_model`; buat banyak
+   model, pakai sub-table `[[providers.<nama>.models]]` (lihat di bawah).
 3. Field `api_key` **wajib ada**. Kalau dihapus, jcode gagal dengan
    `Error: inline api_key not found in environment`. Buat server lokal tanpa auth,
    tulis `api_key = ""` (string kosong, bukan dihilangkan).
 
 Config lain di file kamu (komentar, urutan key, `[[providers.x.models]]`) dipertahankan
 byte-per-byte. Hanya section provider yang disentuh yang berubah.
+
+### Lebih dari satu model per provider
+
+Satu profile bisa ngekspos beberapa model: tambahin satu sub-table
+`[[providers.<nama>.models]]` per model, dan `default_model` nentuin mana yang aktif
+waktu jcode start pakai profile itu. Di jcode, pindah modelnya pakai Ctrl+Tab (atau
+`/model`):
+
+```toml
+[providers.mygw]
+base_url = "https://api.example.com/v1"
+api_key = "sk-xxx"
+default_model = "deepseek-v4-flash"
+
+[[providers.mygw.models]]
+id = "deepseek-v4-flash"
+
+[[providers.mygw.models]]
+id = "gpt-6-luna"
+```
+
+Udah dites langsung ke binary asli: tiap `id` muncul di `jcode model list` buat profile
+itu, dan `jcode --model <id>` beneran ngirim model itu ke endpoint.
+
+Menu **10 (Kelola Model)** ngurusin ini secara interaktif, atau lewat CLI:
+`--models`, `--add-model`, `--remove-model`, dan `--set-models`. Waktu nulis ulang
+daftarnya, manager pakai ulang blok sub-table yang udah ada apa adanya, jadi komentar
+dan field tambahan di dalamnya nggak ilang; cuma entri baru yang ditulis minimal
+berisi `id`.
 
 ### Mode penyimpanan API key
 
@@ -271,24 +309,27 @@ Tiga lapis test, dari yang paling murah sampai paling keras:
 
 ```bash
 python3 tests/test-platform-paths.py   # 18 test: deteksi OS & path per platform
-bash tests/smoke-test.sh               # 64 test engine Python
-bash tests/smoke-test-fallback.sh      # 57 test engine Bash
-bash tests/verify-with-jcode.sh        # 20 test pakai binary jcode asli (sandbox)
+bash tests/smoke-test.sh               # 88 test engine Python
+bash tests/smoke-test-fallback.sh      # 78 test engine Bash
+bash tests/verify-with-jcode.sh        # 23 test pakai binary jcode asli (sandbox)
 ```
 
 - **test-platform-paths.py** - nyimulasiin cabang Windows (`os.name == 'nt'`, env
   `USERPROFILE`/`APPDATA`/`LOCALAPPDATA`) dan macOS (`sys.platform == 'darwin'`),
   plus Linux/WSL dan nama env var provider.
 - **smoke-test.sh** - engine Python: add/list/edit/delete/quick/generate/restore/menu,
-  masking key, integritas config (komentar + provider lain nggak keganggu), mode envfile,
-  urutan `stop daemon` di fitur launch (pakai stub `jcode`, daemon asli aman),
-  kompatibilitas syntax Python 3.8, dan pemilihan engine.
+  kelola banyak model (menu 10 + flag CLI), masking key, integritas config (komentar +
+  provider lain nggak keganggu), mode envfile, urutan `stop daemon` di fitur launch
+  (pakai stub `jcode`, daemon asli aman), kompatibilitas syntax Python 3.8, dan
+  pemilihan engine.
 - **smoke-test-fallback.sh** - hal yang sama buat engine Bash, plus cek delegasi ke
   Python (termasuk lewat symlink) dan fallback otomatis kalau Python nggak ada.
 - **verify-with-jcode.sh** - jalanin binary jcode asli di sandbox bubblewrap dengan
   HOME terpisah dan socket daemon terpisah, lalu ngebuktiin:
   - `jcode provider current` bisa baca config hasil manager (engine Python **dan** Bash)
   - `default_model` dari profile beneran kepakai
+  - tiap model tambahan yang ditambahin manager muncul di `jcode model list` buat profile
+    itu, dan model itu beneran kepakai buat chat
   - chat beneran jalan (`run` balikin `PONG` dari mock server)
   - API key beneran dikirim sebagai `Authorization: Bearer ...`
   - mode `envfile` juga jalan

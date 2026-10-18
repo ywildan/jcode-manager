@@ -245,11 +245,47 @@ check "komentar asli kepertahanin" contains "$CONFIG" '# komentar yang harus tet
 check "provider lain (legacygw) utuh" contains "$CONFIG" 'api_key_env = "JCODE_PROVIDER_LEGACYGW_API_KEY"'
 check "sub-table models legacygw utuh" contains "$CONFIG" '\[\[providers.legacygw.models\]\]'
 
+echo "-- multi-model (menu 10 / --add-model) --"
+check "add model tambahan" run --add-model legacygw=extra-1
+check "sub-table model baru kebikin" contains "$CONFIG" 'id = "extra-1"'
+check "add model tambahan kedua" run --add-model legacygw=extra-2
+check "sub-table model kedua kebikin" contains "$CONFIG" 'id = "extra-2"'
+check_not "add model duplikat ditolak" run --add-model legacygw=extra-2
+check_not "add model tanpa = ditolak" run --add-model legacygw
+check "sub-table model lama tetap ada" contains "$CONFIG" 'id = "legacy-model-1"'
+run --models legacygw >"$WORK/models.txt" 2>&1
+check "models nampilin default" contains "$WORK/models.txt" 'legacy-model-1'
+check "models nampilin model tambahan" contains "$WORK/models.txt" 'extra-2'
+run --models legacygw --json >"$WORK/models.json" 2>/dev/null
+check "models --json valid" "$PY" -c "import json, sys; json.load(open(sys.argv[1]))" "$WORK/models.json"
+check "models --json punya daftar models" contains "$WORK/models.json" '"extra-1"'
+check "set-models ganti seluruh daftar" run --set-models 'legacygw=alpha1,alpha2' --model alpha2
+check_not "set-models buang model lama" grep -q 'id = "extra-1"' "$CONFIG"
+check "set-models update default_model" contains "$CONFIG" 'default_model = "alpha2"'
+check "remove-model hapus satu" run --remove-model legacygw=alpha1
+check_not "remove-model beneran ngilangin" grep -q 'id = "alpha1"' "$CONFIG"
+check_not "remove-model yang nggak ada = error" run --remove-model legacygw=hantu
+check "config masih valid setelah multi-model" "$PY" -c "
+import sys, tomllib
+tomllib.load(open(sys.argv[1], 'rb'))
+" "$CONFIG"
+check "komentar masih utuh setelah multi-model" contains "$CONFIG" '# komentar yang harus tetap ada'
+
+printf '10\nlegacygw\n1\nmenu-extra\n\n0\n' | run >"$WORK/menu10.txt" 2>&1
+check "menu 10 nambah model" contains "$CONFIG" 'id = "menu-extra"'
+
+printf '10\nlegacygw\n4\nzz9,yy8\n\n0\n' | run >"$WORK/menu10b.txt" 2>&1
+check "menu 10 ganti daftar model" contains "$CONFIG" 'id = "zz9"'
+check "menu 10 bener-bener ngeganti" contains "$CONFIG" 'id = "yy8"'
+
+check "legacygw masih ada" contains "$CONFIG" '\[providers.legacygw\]'
+check "models legacygw masih ada" contains "$CONFIG" 'id = "zz9"'
+
 echo "-- delete --"
 check "delete envguy" run --delete envguy --yes
 check_not "section envguy hilang" grep -q '\[providers.envguy\]' "$CONFIG"
 check "legacygw masih ada" contains "$CONFIG" '\[providers.legacygw\]'
-check "models legacygw masih ada" contains "$CONFIG" 'id = "legacy-model-1"'
+check "models legacygw masih ada" contains "$CONFIG" 'id = "zz9"'
 check_not "delete provider nggak ada = error" run --delete hantu --yes
 check "config masih valid setelah delete" "$PY" -c "
 import sys, tomllib

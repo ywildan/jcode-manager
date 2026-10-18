@@ -502,6 +502,257 @@ cmd_delete() { # <nama>
     return 0
 }
 
+# --- multi-model (sub-table [[providers.<nama>.models]]) ---
+# jcode baca tiap sub-table itu sebagai satu model yang bisa dipilih di picker.
+# Satu provider boleh punya banyak model; `default_model` cuma yang dipakai default.
+
+provider_models() { # <nama> -> cetak id model, satu per baris
+    [ -f "$CONFIG_PATH" ] || return 0
+    awk -v target="$1" '
+        function hdr(line,   t) {
+            t = line
+            if (t !~ /^[ \t]*\[\[?[ \t]*providers[ \t]*\./) return ""
+            sub(/^[ \t]*\[\[?[ \t]*providers[ \t]*\./, "", t)
+            sub(/[.\]].*$/, "", t)
+            gsub(/^[ \t]+|[ \t]+$/, "", t); gsub(/^"|"$/, "", t)
+            return t
+        }
+        function idof(line,   k, v) {
+            if (line !~ /=/) return ""
+            k = line; sub(/[ \t]*=.*/, "", k); gsub(/^[ \t]+|[ \t]+$/, "", k)
+            if (k != "id") return ""
+            v = line; sub(/^[^=]*=[ \t]*/, "", v); gsub(/[ \t]*#.*$/, "", v)
+            gsub(/^[ \t]+|[ \t]+$/, "", v); gsub(/^"|"$/, "", v)
+            return v
+        }
+        { lines[NR] = $0 }
+        END {
+            for (i = 1; i <= NR; i++) {
+                if (lines[i] !~ /^[ \t]*\[\[/) continue
+                if (hdr(lines[i]) != target) continue
+                for (j = i + 1; j <= NR; j++) {
+                    if (hdr(lines[j]) != "") break
+                    v = idof(lines[j])
+                    if (v != "") { print v; break }
+                }
+            }
+        }
+    ' "$CONFIG_PATH"
+}
+
+provider_models_csv() { # <nama> -> id1,id2,...
+    provider_models "$1" | awk 'BEGIN { ORS = "" } { print (NR > 1 ? "," : "") $0 }'
+}
+
+cmd_models() { # <nama> [json]
+    local name="$1" json="${2:-0}" def n=0 m mark first=1
+    provider_exists "$name" || { err "Provider '$name' nggak ada di $CONFIG_PATH."; return 1; }
+    def="$(provider_field "$name" 4)"
+    if [ "$json" = "1" ]; then
+        printf '{\n  "name": "%s",\n  "default_model": "%s",\n  "models": [' \
+            "$(toml_escape "$name")" "$(toml_escape "$def")"
+        while IFS= read -r m; do
+            [ -n "$m" ] || continue
+            [ "$first" = "1" ] || printf ', '
+            first=0
+            printf '"%s"' "$(toml_escape "$m")"
+        done < <(provider_models "$name")
+        printf ']\n}\n'
+        return 0
+    fi
+    printf '  %sdefault ...%s %s\n' "$C_GRAY" "$C_RESET" "${def:-(belum diset)}"
+    while IFS= read -r m; do
+        [ -n "$m" ] || continue
+        n=$((n + 1))
+        if [ "$m" = "$def" ]; then mark="${C_GRAY} (= default)${C_RESET}"; else mark=""; fi
+        printf '  %s%2d.%s %s%s%s\n' "$C_GRAY" "$n" "$C_RESET" "$m" "$mark" ""
+    done < <(provider_models "$name")
+    if [ "$n" -eq 0 ]; then
+        printf '  %s(belum ada model tambahan)%s\n' "$C_GRAY" "$C_RESET"
+    fi
+    return 0
+}
+
+# Ganti seluruh sub-table [[providers.<nama>.models]] dengan daftar baru.
+# Blok lama dipakai ulang (biar komentar/field tambahan nggak ilang), model baru
+# ditulis sebagai blok minimal berisi id. csv kosong = hapus semua sub-table.
+cmd_set_models() { # <nama> <id1,id2,...> [default]
+    local name="$1" csv="${2:-}" default="${3:-}" tmp backup
+    provider_exists "$name" || { err "Provider '$name' nggak ada di $CONFIG_PATH."; return 1; }
+    case "$csv" in
+        *'"'*) err "Nama model nggak boleh ada tanda kutip."; return 1 ;;
+        *" "*|*"\t"*) err "Nama model nggak boleh ada spasi."; return 1 ;;
+    esac
+    case "$default" in
+        *'"'*|*" "*) err "Nama model nggak boleh ada tanda kutip/spasi."; return 1 ;;
+    esac
+
+    backup="$(backup_config)"
+    tmp="$CONFIG_PATH.tmp.$$"
+    awk -v target="$name" -v csv="$csv" '
+        function hdr(line,   t) {
+            t = line
+            if (t !~ /^[ \t]*\[\[?[ \t]*providers[ \t]*\./) return ""
+            sub(/^[ \t]*\[\[?[ \t]*providers[ \t]*\./, "", t)
+            sub(/[.\]].*$/, "", t)
+            gsub(/^[ \t]+|[ \t]+$/, "", t); gsub(/^"|"$/, "", t)
+            return t
+        }
+        function idof(line,   k, v) {
+            if (line !~ /=/) return ""
+            k = line; sub(/[ \t]*=.*/, "", k); gsub(/^[ \t]+|[ \t]+$/, "", k)
+            if (k != "id") return ""
+            v = line; sub(/^[^=]*=[ \t]*/, "", v); gsub(/[ \t]*#.*$/, "", v)
+            gsub(/^[ \t]+|[ \t]+$/, "", v); gsub(/^"|"$/, "", v)
+            return v
+        }
+        function rstrip(s) {
+            while (length(s) > 0 && substr(s, length(s), 1) == "\n") s = substr(s, 1, length(s) - 1)
+            return s
+        }
+        { lines[NR] = $0 }
+        END {
+            n = NR
+            p = 0
+            for (i = 1; i <= n; i++) {
+                if (lines[i] ~ /^[ \t]*\[\[/) continue
+                if (hdr(lines[i]) == target) { p = i; break }
+            }
+            if (p == 0) exit 1
+            e = n + 1
+            for (i = p + 1; i <= n; i++) if (hdr(lines[i]) != "") { e = i; break }
+
+            nb = 0
+            for (i = 1; i <= n; i++) {
+                if (lines[i] !~ /^[ \t]*\[\[/) continue
+                if (hdr(lines[i]) != target) continue
+                j = i + 1
+                while (j <= n && hdr(lines[j]) == "") j++
+                txt = ""; bid = ""
+                for (k = i; k < j; k++) {
+                    txt = txt lines[k] "\n"
+                    if (bid == "") bid = idof(lines[k])
+                }
+                drop[i] = j - 1
+                nb++; blkid[nb] = bid; blktxt[nb] = txt
+                i = j - 1
+            }
+
+            grp = ""
+            m = (csv == "" ? 0 : split(csv, want, ","))
+            for (w = 1; w <= m; w++) {
+                id = want[w]
+                gsub(/^[ \t]+|[ \t]+$/, "", id)
+                if (id == "" || seen[id]) continue
+                seen[id] = 1
+                txt = ""
+                for (b = 1; b <= nb; b++) if (blkid[b] == id) { txt = blktxt[b]; break }
+                if (txt == "") txt = "[[providers." target ".models]]\nid = \"" id "\"\n"
+                grp = grp (grp == "" ? "" : "\n\n") rstrip(txt)
+            }
+            for (b = 1; b <= nb; b++) {
+                if (blkid[b] != "") continue
+                grp = grp (grp == "" ? "" : "\n\n") rstrip(blktxt[b])
+            }
+
+            head = ""
+            for (i = 1; i < e; i++) {
+                if (i in drop) { i = drop[i]; continue }
+                head = head lines[i] "\n"
+            }
+            head = rstrip(head)
+            tail = ""
+            for (i = e; i <= n; i++) {
+                if (i in drop) { i = drop[i]; continue }
+                tail = tail lines[i] "\n"
+            }
+            while (length(tail) > 0 && substr(tail, 1, 1) == "\n") tail = substr(tail, 2)
+            tail = rstrip(tail)
+
+            out = head
+            if (grp != "") out = out "\n\n" grp
+            if (tail != "") out = out "\n\n" tail
+            print out
+        }
+    ' "$CONFIG_PATH" >"$tmp" || { err "Gagal nulis ulang config."; rm -f "$tmp" 2>/dev/null; return 1; }
+    [ -s "$tmp" ] || { err "Hasil rewrite kosong, perubahan dibatalin."; rm -f "$tmp" 2>/dev/null; return 1; }
+
+    write_config "$tmp" || { rm -f "$tmp" 2>/dev/null; return 1; }
+    [ -n "$backup" ] && ok "Backup config: $backup"
+    if [ -n "$default" ]; then
+        cmd_edit "$name" "-" "-" "$default" "-" >/dev/null 2>&1 || true
+        ok "default_model: $default"
+    fi
+    if [ -n "$csv" ]; then
+        ok "Daftar model '$name' diset: $(printf '%s' "$csv" | tr ',' ' ')"
+    else
+        ok "Semua model tambahan provider '$name' dihapus."
+    fi
+    return 0
+}
+
+cmd_add_model() { # <nama> <id>
+    local name="$1" id="${2:-}" existing
+    provider_exists "$name" || { err "Provider '$name' nggak ada di $CONFIG_PATH."; return 1; }
+    [ -n "$id" ] || { err "Nama model nggak boleh kosong."; return 1; }
+    if provider_models "$name" | grep -qx -- "$id"; then
+        err "Model '$id' udah kedaftar di provider '$name'."
+        return 1
+    fi
+    existing="$(provider_models_csv "$name")"
+    cmd_set_models "$name" "${existing:+$existing,}$id" || return 1
+    if [ -z "$(provider_field "$name" 4)" ]; then
+        cmd_edit "$name" "-" "-" "$id" "-" >/dev/null 2>&1 || true
+        ok "default_model diisi '$id' karena sebelumnya belum diset."
+    fi
+    ok "Model '$id' ditambahin ke provider '$name'."
+    return 0
+}
+
+cmd_remove_model() { # <nama> <id>
+    local name="$1" id="${2:-}" csv default
+    provider_exists "$name" || { err "Provider '$name' nggak ada di $CONFIG_PATH."; return 1; }
+    provider_models "$name" | grep -qx -- "$id" || {
+        err "Model '$id' nggak kedaftar di provider '$name'."
+        return 1
+    }
+    csv="$(provider_models "$name" | awk -v drop="$id" '$0 != drop && $0 != "" { print (n++ ? "," : "") $0 }')"
+    cmd_set_models "$name" "$csv" || return 1
+    default="$(provider_field "$name" 4)"
+    if [ "$default" = "$id" ]; then
+        info "Catatan: default_model masih '$id'. Set default baru lewat Edit atau menu 10."
+    fi
+    ok "Model '$id' dihapus dari provider '$name'."
+    return 0
+}
+
+cmd_models_batch() { # <baris-add> <baris-remove>
+    local adds="$1" removes="$2" raw nm mid rc=0
+    while IFS= read -r raw; do
+        [ -n "$raw" ] || continue
+        case "$raw" in
+            *=*) nm="${raw%%=*}"; mid="${raw#*=}" ;;
+            *) err "--add-model/--remove-model butuh format NAMA=MODEL, contoh: mygw=gpt-4o."; return 2 ;;
+        esac
+        [ -n "$nm" ] && [ -n "$mid" ] || { err "Format NAMA=MODEL kurang lengkap: $raw"; return 2; }
+        cmd_add_model "$nm" "$mid" || rc=1
+    done <<EOF
+$adds
+EOF
+    while IFS= read -r raw; do
+        [ -n "$raw" ] || continue
+        case "$raw" in
+            *=*) nm="${raw%%=*}"; mid="${raw#*=}" ;;
+            *) err "--add-model/--remove-model butuh format NAMA=MODEL, contoh: mygw=gpt-4o."; return 2 ;;
+        esac
+        [ -n "$nm" ] && [ -n "$mid" ] || { err "Format NAMA=MODEL kurang lengkap: $raw"; return 2; }
+        cmd_remove_model "$nm" "$mid" || rc=1
+    done <<EOF
+$removes
+EOF
+    return $rc
+}
+
 # --- jcode ---
 jcode_cmd() { # <profile> [model] -> cetak command
     local profile="$1" model="${2:-}" exe="jcode"
@@ -861,6 +1112,66 @@ menu_restore() {
     cmd_restore "${arr[$((pick - 1))]}"
 }
 
+menu_models() {
+    clear_screen
+    header "10. Kelola Model Provider" "Satu provider bisa punya banyak model"
+    say
+    local name def action id m pick idx=0 n=0
+    name="$(choose_provider "Provider yang model-nya mau diatur")" || return 0
+    [ -n "$name" ] || return 0
+    def="$(provider_field "$name" 4)"
+    say
+    printf '  %sdefault ...%s %s\n' "$C_GRAY" "$C_RESET" "${def:-(belum diset)}"
+    while IFS= read -r m; do
+        [ -n "$m" ] || continue
+        n=$((n + 1))
+        if [ "$m" = "$def" ]; then
+            printf '  %s%2d.%s %s%s (= default)%s\n' "$C_GRAY" "$n" "$C_RESET" "$C_CYAN" "$m" "$C_RESET"
+        else
+            printf '  %s%2d.%s %s\n' "$C_GRAY" "$n" "$C_RESET" "$m"
+        fi
+    done < <(provider_models "$name")
+    if [ "$n" -eq 0 ]; then
+        printf '  %s(belum ada model tambahan)%s\n' "$C_GRAY" "$C_RESET"
+    fi
+    say
+    say "${C_GRAY}  1) Tambah model   2) Hapus model   3) Jadikan default   4) Ganti semua daftar${C_RESET}"
+    action="$(ask 'Pilih aksi (kosong = batal)')"
+    case "$action" in
+        1)
+            id="$(ask 'Nama model baru (contoh: gpt-4o)')"
+            [ -n "$id" ] || { warn "Dibatalin."; return 0; }
+            cmd_add_model "$name" "$id" ;;
+        2)
+            id="$(ask 'Model yang mau dihapus (nomor atau nama)')"
+            [ -n "$id" ] || { warn "Dibatalin."; return 0; }
+            case "$id" in
+                *[!0-9]*|'') ;;
+                *)
+                    while IFS= read -r m; do
+                        [ -n "$m" ] || continue
+                        idx=$((idx + 1))
+                        [ "$idx" = "$id" ] && pick="$m"
+                    done < <(provider_models "$name")
+                    if [ -n "${pick:-}" ]; then id="$pick"; fi ;;
+            esac
+            cmd_remove_model "$name" "$id" ;;
+        3)
+            id="$(ask 'Jadikan default model' "$def")"
+            [ -n "$id" ] || { warn "Dibatalin."; return 0; }
+            local existing
+            existing="$(provider_models_csv "$name")"
+            cmd_set_models "$name" "${existing:+$existing,}$id" "$id" ;;
+        4)
+            local cur
+            cur="$(provider_models_csv "$name")"
+            id="$(ask 'Daftar model lengkap (pisahin pakai koma)' "$cur")"
+            [ -n "$id" ] || { warn "Dibatalin."; return 0; }
+            cmd_set_models "$name" "$id" "$def" ;;
+        *) warn "Dibatalin." ;;
+    esac
+}
+
 interactive_menu() {
     local choice nprov
     while :; do
@@ -878,6 +1189,7 @@ interactive_menu() {
         say "  ${C_MAGENTA}7) Launch Provider  (stop daemon + start)${C_RESET}"
         say "  ${C_GRAY}8) Info & Doctor${C_RESET}"
         say "  ${C_GRAY}9) Restore dari Backup${C_RESET}"
+        say "  ${C_GREEN}10) Kelola Model Provider${C_RESET}"
         say "  ${C_GRAY}0) Keluar${C_RESET}"
         say
         choice="$(ask 'Pilih menu (0 = keluar)')"
@@ -892,6 +1204,7 @@ interactive_menu() {
             7) menu_launch ;;
             8) menu_info ;;
             9) menu_restore ;;
+            10) menu_models ;;
             *) warn "Menu '$choice' nggak ada. Coba lagi." ;;
         esac
         pause_key
@@ -917,6 +1230,10 @@ Aksi:
   --quick PRESET         openai | anthropic | groq | openrouter
   --generate NAMA        cetak command jcode
   --launch NAMA          stop daemon terus start jcode
+  --models NAMA          tampilkan daftar model satu provider
+  --add-model NAMA=MODEL tambah model ke provider (boleh diulang)
+  --remove-model NAMA=MODEL  hapus model dari provider (boleh diulang)
+  --set-models NAMA=M1,M2    ganti seluruh daftar model provider
   --restore PATH         balikin config dari backup
 
 Opsi field:
@@ -930,6 +1247,7 @@ USAGE
 main() {
     local action="" target="" base="" key="" model="" newname="" name_opt=""
     local force=0 json=0 yes=0 apikey_stdin=0 restore_path=""
+    local add_models="" remove_models=""
     CONFIG_OVERRIDE=""
 
     while [ $# -gt 0 ]; do
@@ -943,6 +1261,10 @@ main() {
             --quick) action="quick"; target="${2:-}"; shift 2 ;;
             --generate) action="generate"; target="${2:-}"; shift 2 ;;
             --launch) action="launch"; target="${2:-}"; shift 2 ;;
+            --models) action="models"; target="${2:-}"; shift 2 ;;
+            --add-model) add_models="${add_models}${2:-}"$'\n'; shift 2 ;;
+            --remove-model) remove_models="${remove_models}${2:-}"$'\n'; shift 2 ;;
+            --set-models) action="set-models"; target="${2:-}"; shift 2 ;;
             --restore) action="restore"; restore_path="${2:-}"; shift 2 ;;
             --base-url) base="${2:-}"; shift 2 ;;
             --api-key) key="${2:-}"; shift 2 ;;
@@ -959,6 +1281,10 @@ main() {
             *) err "Argumen nggak dikenal: $1"; usage >&2; return 2 ;;
         esac
     done
+
+    if [ -z "$action" ] && { [ -n "$add_models" ] || [ -n "$remove_models" ]; }; then
+        action="models-batch"
+    fi
 
     [ "$apikey_stdin" = "1" ] && { IFS= read -r key 2>/dev/null || key=""; }
 
@@ -982,6 +1308,16 @@ main() {
             qname="${name_opt:-$target}"
             cmd_add "$qname" "${base:-$(preset_field "$target" base)}" "$key" "${model:-$(preset_field "$target" model)}" "$force" || return 1 ;;
         generate) cmd_generate "$target" "$model" || return 1 ;;
+        models) cmd_models "$target" "$json" || return 1 ;;
+        set-models)
+            case "$target" in
+                *=*) ;;
+                *) err "--set-models butuh format NAMA=MODEL, contoh: mygw=gpt-4o."; return 2 ;;
+            esac
+            local sm_name="${target%%=*}" sm_csv="${target#*=}"
+            [ -n "$sm_name" ] && [ -n "$sm_csv" ] || { err "--set-models butuh format NAMA=MODEL, contoh: mygw=gpt-4o."; return 2; }
+            cmd_set_models "$sm_name" "$sm_csv" "$model" || return 1 ;;
+        models-batch) cmd_models_batch "$add_models" "$remove_models" || return 1 ;;
         launch)
             confirm "Stop daemon terus launch '$target'?" "$yes" || { warn "Dibatalin."; return 0; }
             cmd_launch "$target" "$model"
