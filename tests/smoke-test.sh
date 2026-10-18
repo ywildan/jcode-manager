@@ -86,39 +86,45 @@ echo
 fixture
 
 echo "-- launch (stub jcode, daemon asli nggak disentuh) --"
+STUB_DIR="$WORK/bin"
+mkdir -p "$STUB_DIR"
+export JCM_STUB_LOG="$WORK/stub.log"
+STUB_LOG="$WORK/stub.norm.log"
 if is_windows; then
-    # Engine nyari binary jcode lewat shutil.which, yang di Windows nggak
-    # nemuin file tanpa ekstensi (butuh .exe/.cmd/.bat), jadi stub bash
-    # nggak bisa dipakai di sini. Bagian lain tetap jalan di Windows.
-    skip "launch pakai stub jcode (Windows: shutil.which butuh ekstensi)"
+    # Windows: CreateProcess nggak bisa njalanin script shell tanpa ekstensi,
+    # jadi stub-nya `.cmd` (shutil.which nemu lewat PATHEXT). Path log-nya harus
+    # bentuk native, karena cmd.exe nggak ngerti path gaya MSYS.
+    STUB_LOG_NATIVE="$(cygpath -w "$JCM_STUB_LOG" 2>/dev/null || printf '%s' "$JCM_STUB_LOG")"
+    printf '@echo off\r\n>>"%s" echo %%*\r\n' "$STUB_LOG_NATIVE" >"$STUB_DIR/jcode.cmd"
 else
-    STUB_DIR="$WORK/bin"
-    mkdir -p "$STUB_DIR"
     cat >"$STUB_DIR/jcode" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$JCM_STUB_LOG"
 exit 0
 STUB
     chmod +x "$STUB_DIR/jcode"
-    export JCM_STUB_LOG="$WORK/stub.log"
-    fixture
-    run --add launcher --base-url https://api.launch.example/v1 --api-key sk-launch-abcdef123456 --model launch-model >/dev/null 2>&1
-    PATH="$STUB_DIR:$PATH" run --launch launcher --yes >"$WORK/launch.txt" 2>&1
-    if grep -q '^server stop --force$' "$JCM_STUB_LOG" 2>/dev/null; then
-        pass "launch stop daemon dulu (server stop --force)"
-    else
-        fail "launch stop daemon dulu (server stop --force)"
-    fi
-    if grep -q 'provider openai-compatible --provider-profile launcher --model launch-model' "$JCM_STUB_LOG" 2>/dev/null; then
-        pass "launch pakai flag provider + profile + model"
-    else
-        fail "launch pakai flag provider + profile + model"
-    fi
-    if [ "$(head -1 "$JCM_STUB_LOG" 2>/dev/null)" = "server stop --force" ]; then
-        pass "urutan: stop daemon sebelum start"
-    else
-        fail "urutan: stop daemon sebelum start"
-    fi
+fi
+fixture
+run --add launcher --base-url https://api.launch.example/v1 --api-key sk-launch-abcdef123456 --model launch-model >/dev/null 2>&1
+PATH="$STUB_DIR:$PATH" run --launch launcher --yes >"$WORK/launch.txt" 2>&1
+
+# Baris dari cmd.exe itu CRLF, jadi dinormalisasi dulu (no-op di Linux/macOS).
+tr -d '\r' <"$JCM_STUB_LOG" >"$STUB_LOG" 2>/dev/null || : >"$STUB_LOG"
+
+if grep -q '^server stop --force$' "$STUB_LOG" 2>/dev/null; then
+    pass "launch stop daemon dulu (server stop --force)"
+else
+    fail "launch stop daemon dulu (server stop --force)"
+fi
+if grep -q 'provider openai-compatible --provider-profile launcher --model launch-model' "$STUB_LOG" 2>/dev/null; then
+    pass "launch pakai flag provider + profile + model"
+else
+    fail "launch pakai flag provider + profile + model"
+fi
+if [ "$(head -1 "$STUB_LOG" 2>/dev/null)" = "server stop --force" ]; then
+    pass "urutan: stop daemon sebelum start"
+else
+    fail "urutan: stop daemon sebelum start"
 fi
 
 echo "-- portabilitas --"
