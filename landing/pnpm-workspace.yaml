@@ -1,4 +1,0 @@
-# Standalone workspace root. Without this file pnpm walks up to
-# /home/ubuntu/pnpm-workspace.yaml, treats the home directory as the workspace
-# root and tries to install unrelated packages (for example 9router).
-packages: []

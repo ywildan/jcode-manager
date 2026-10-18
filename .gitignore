@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 *.tar.gz
+
+# Landing page punya repo sendiri: github.com/ywildan/jcode-manager-landing
+# Folder ini cuma ada di working tree buat development lokal, bukan bagian repo ini.
+landing/
