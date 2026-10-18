@@ -316,10 +316,10 @@ genuine ubuntu / macOS (arm64) / Windows runner - not a simulation.
 | Area | Linux | macOS | Windows |
 | ---- | ----- | ----- | ------- |
 | Config path & env dir detection | tested live | tested live (CI) | tested live (CI) |
-| Provider CRUD + TOML, Python engine (64 tests) | tested live | tested live (CI) | tested live, 2 skip (CI) |
+| Provider CRUD + TOML, Python engine (64 tests) | tested live | tested live (CI) | tested live, 1 skip (CI) |
 | Provider CRUD + TOML, Bash engine (57 tests) | tested live | tested live (CI) | tested live, 1 skip (CI) |
 | Engine selection + `.sh` launcher | tested live | tested live (CI) | tested live (CI) |
-| Launch flow, stub jcode | tested live | tested live (CI) | skipped (see below) |
+| Launch flow, stub jcode | tested live | tested live (CI) | tested live (CI, `.cmd` stub) |
 | env-file mode written as `0600` | tested live | tested live (CI) | n/a, no POSIX modes |
 | Real jcode binary reads the config | tested live (CI, downloaded release) | not yet | not yet |
 | `.ps1` launcher | n/a | n/a | not tested (it only locates Python) |
@@ -327,10 +327,14 @@ genuine ubuntu / macOS (arm64) / Windows runner - not a simulation.
 
 What the matrix is telling you:
 
-- **Windows skips three assertions on purpose**: `shutil.which` in the Python engine only
-  matches `.exe`/`.cmd`/`.bat`, so a bash stub cannot stand in for `jcode`; `ln -s` copies
-  instead of linking in MSYS by default; and Windows has no POSIX permission bits. Each one
-  prints `skip` in the CI log, so passing counts never get inflated.
+- **Windows skips two assertions on purpose**: `ln -s` copies instead of linking in MSYS by
+  default (so the launcher's symlink resolution is not exercised there), and Windows has no
+  POSIX permission bits (so the `0600` check is meaningless). Both print `skip` in the CI log,
+  so passing counts never get inflated.
+- **The Windows launch test uses a `.cmd` stub** instead of the bash stub, because
+  `CreateProcess` cannot start an extensionless shell script. That test already paid for
+  itself: it caught a real bug where launching a jcode installed as `.cmd`/`.bat` failed,
+  because the engine passed the bare name `jcode` (and `CreateProcess` only appends `.exe`).
 - **The real-jcode acceptance test is Linux-only** because it needs bubblewrap to hold a
   separate `HOME` and daemon socket. On macOS/Windows the config format is asserted by the
   simulation tests, not by jcode itself.

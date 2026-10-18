@@ -303,10 +303,10 @@ ubuntu / macOS (arm64) / Windows yang asli bukan simulasi.
 | Bagian | Linux | macOS | Windows |
 | ------ | ----- | ----- | ------- |
 | Deteksi path config & env dir | dites langsung | dites langsung (CI) | dites langsung (CI) |
-| CRUD provider + TOML, engine Python (64 test) | dites langsung | dites langsung (CI) | dites langsung, 2 skip (CI) |
+| CRUD provider + TOML, engine Python (64 test) | dites langsung | dites langsung (CI) | dites langsung, 1 skip (CI) |
 | CRUD provider + TOML, engine Bash (57 test) | dites langsung | dites langsung (CI) | dites langsung, 1 skip (CI) |
 | Pemilihan engine + launcher `.sh` | dites langsung | dites langsung (CI) | dites langsung (CI) |
-| Alur launch (stub jcode) | dites langsung | dites langsung (CI) | skip (lihat bawah) |
+| Alur launch (stub jcode) | dites langsung | dites langsung (CI) | dites langsung (CI, stub `.cmd`) |
 | Mode env file ditulis `0600` | dites langsung | dites langsung (CI) | n/a, Windows nggak punya mode POSIX |
 | Config dibaca binary jcode asli | dites langsung (CI, download release) | belum | belum |
 | Launcher `.ps1` | n/a | n/a | belum dites (cuma nyari Python) |
@@ -314,10 +314,14 @@ ubuntu / macOS (arm64) / Windows yang asli bukan simulasi.
 
 Catatan pentingnya:
 
-- **Di Windows ada tiga assert yang sengaja di-skip**: `shutil.which` di engine Python cuma
-  cocok sama `.exe`/`.cmd`/`.bat` (jadi stub bash nggak bisa jadi pengganti `jcode`), `ln -s`
-  di MSYS default-nya nyalin bukan bikin symlink, dan Windows nggak punya bit permission
-  POSIX. Semuanya dicetak `skip` di log CI, jadi jumlah "ok" nggak digelembungin.
+- **Di Windows ada dua assert yang sengaja di-skip**: `ln -s` di MSYS default-nya nyalin
+  (jadi resolusi symlink launcher nggak keuji di sana), dan Windows nggak punya bit permission
+  POSIX (jadi cek `0600` nggak ada artinya). Keduanya dicetak `skip` di log CI, jadi jumlah "ok"
+  nggak digelembungin.
+- **Test launch di Windows pakai stub `.cmd`**, bukan stub bash: `CreateProcess` nggak bisa
+  jalanin script shell tanpa ekstensi. Test ini udah "balik modal": dia nangkep bug beneran
+  di mana launch gagal kalau jcode terpasang sebagai `.cmd`/`.bat`, karena engine ngirim nama
+  pendek `jcode` (dan `CreateProcess` cuma nambahin `.exe` sendiri).
 - **Acceptance pakai jcode asli cuma di Linux**, karena butuh bubblewrap buat misahin `HOME`
   dan socket daemon. Di macOS/Windows format config-nya diuji lewat simulasi, bukan sama
   jcode-nya langsung.
@@ -334,7 +338,7 @@ sudah masuk test.
 Hasil terakhir (jcode v0.98.1, Linux): **18 ok / 0 fail** (platform),
 **64 ok / 0 fail** (engine Python), **57 ok / 0 fail** (engine Bash),
 **20 ok / 0 fail** (acceptance pakai binary jcode asli). Total 159 check.
-Di CI: ubuntu/macOS **64 + 57 ok, 0 fail**, Windows **60 + 56 ok, 0 fail, 3 skip**,
+Di CI: ubuntu/macOS **64 + 57 ok, 0 fail**, Windows **63 + 56 ok, 0 fail, 2 skip**,
 acceptance **20 ok / 0 fail**.
 
 ## Troubleshooting
