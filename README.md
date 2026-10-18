@@ -313,6 +313,12 @@ bash tests/verify-with-jcode.sh        # 20 tests against the real jcode binary 
 Everything marked "CI" runs for real on every push in `.github/workflows/ci.yml`, on a
 genuine ubuntu / macOS (arm64) / Windows runner - not a simulation.
 
+Two notes so the table is not read as more than it is: on the path rows, "tested live"
+means the OS-specific branch of the path logic runs on that runner, with
+`HOME`/`USERPROFILE`/`APPDATA`/`XDG_CONFIG_HOME` redirected into temp dirs and the suites
+passing `--config` / `JCODE_MANAGER_APP_CONFIG`, so no real config is ever touched. The
+counts come from the job logs, `skip` lines included (see the bullets below).
+
 | Area | Linux | macOS | Windows |
 | ---- | ----- | ----- | ------- |
 | Config path & env dir detection | tested live | tested live (CI) | tested live (CI) |

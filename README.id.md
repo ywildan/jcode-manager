@@ -300,6 +300,12 @@ bash tests/verify-with-jcode.sh        # 20 test pakai binary jcode asli (sandbo
 Yang ditandai "CI" jalan beneran tiap push lewat `.github/workflows/ci.yml`, di runner
 ubuntu / macOS (arm64) / Windows yang asli bukan simulasi.
 
+Dua catatan biar tabelnya nggak dibaca lebih dari kenyataannya: di baris path, "dites
+langsung" artinya cabang khusus OS itu yang jalan di runner tersebut, sementara
+`HOME`/`USERPROFILE`/`APPDATA`/`XDG_CONFIG_HOME` diarahkan ke folder temp dan suite-nya
+pakai override `--config` / `JCODE_MANAGER_APP_CONFIG`, jadi config asli nggak pernah
+kesentuh. Angkanya diambil dari log job, termasuk baris `skip` (lihat catatan di bawah).
+
 | Bagian | Linux | macOS | Windows |
 | ------ | ----- | ----- | ------- |
 | Deteksi path config & env dir | dites langsung | dites langsung (CI) | dites langsung (CI) |
